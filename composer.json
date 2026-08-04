@@ -71,6 +71,11 @@
             ]
         },
         "yii\\composer\\Installer::postInstall": {
+            "copyFiles": [
+                {
+                    "config/local/web.example.php": "config/local/web.php"
+                }
+            ],
             "generateCookieValidationKey": [
                 "config/local/web.php"
             ]
