@@ -1,11 +1,6 @@
 <?php
 
 return [
-    'class' => \yii\db\Connection::class,
-    'dsn' => 'mysql:host=localhost;dbname=dbname',
-    'username' => 'dbusername',
-    'password' => 'dbpassword',
-    'charset' => 'utf8',
 
     // Schema cache options (for production environment)
     //'enableSchemaCache' => true,
