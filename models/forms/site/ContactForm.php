@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace app\forms\site;
+namespace app\models\forms\site;
 
 use yii\base\Model;
 use yii\mail\MailerInterface;
