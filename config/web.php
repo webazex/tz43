@@ -1,5 +1,7 @@
 <?php
+
 use yii\helpers\ArrayHelper;
+
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
 
@@ -30,7 +32,7 @@ $config = [
             'class' => \yii\caching\FileCache::class,
         ],
         'user' => [
-            'identityClass' => \app\models\User::class,
+            'identityClass' => \app\models\entities\User::class,
             'enableAutoLogin' => true,
         ],
         'errorHandler' => [

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace app\controllers;
 
+use app\forms\auth\LoginForm;
+use app\forms\site\ContactForm;
 use Yii;
-use app\models\ContactForm;
-use app\models\LoginForm;
+use yii\base\Security;
 use yii\captcha\CaptchaAction;
 use yii\filters\AccessControl;
 use yii\filters\VerbFilter;
-use yii\base\Security;
 use yii\mail\MailerInterface;
 use yii\web\Controller;
 use yii\web\ErrorAction;

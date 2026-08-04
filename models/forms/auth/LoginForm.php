@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-namespace app\models;
+namespace app\forms\auth;
 
+use app\models\entities\User;
 use Yii;
 use yii\base\Model;
 use yii\base\Security;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace app\tests\Unit\Models;
 
-use app\models\ContactForm;
+use app\forms\site\ContactForm;
 use Yii;
 use yii\mail\MessageInterface;
 

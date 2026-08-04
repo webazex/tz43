@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace app\tests\Unit;
 
 use app\controllers\SiteController;
-use app\models\User;
+use app\models\entities\User;
 use Yii;
 use yii\base\Security;
 use yii\web\IdentityInterface;
