@@ -39,10 +39,7 @@ tests/_support/_generated
 /LICENSE.md
 /requirements.php
 /docker-compose.yml
-/codeception.yml
-/yii
 /phpcs.xml.dist
-/composer.json
 /Vagrantfile
 /phpstan.neon
 /.bowerrc
