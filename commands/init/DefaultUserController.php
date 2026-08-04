@@ -104,7 +104,12 @@ final class DefaultUserController extends Controller
                 Console::FG_YELLOW
             );
 
-            return ExitCode::OK;
+            /**
+             * Для окремого виклику скасування не є технічною помилкою.
+             * Але для Setup відсутність адміністратора означає, що початкове
+             * налаштування не було завершено.
+             */
+            return ExitCode::UNSPECIFIED_ERROR;
         }
 
         $user = new User([
