@@ -1,6 +1,6 @@
 <?php
 
-namespace resources;
+namespace app\resources;
 
 class ClientResource
 {
