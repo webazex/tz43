@@ -72,7 +72,7 @@
         },
         "yii\\composer\\Installer::postInstall": {
             "generateCookieValidationKey": [
-                "config/web.php"
+                "config/local/web.php"
             ]
         }
     },
