@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace app\controllers;
 
-use app\forms\auth\LoginForm;
-use app\forms\site\ContactForm;
+use app\models\forms\auth\LoginForm;
+use app\models\forms\site\ContactForm;
 use Yii;
 use yii\base\Security;
 use yii\captcha\CaptchaAction;
