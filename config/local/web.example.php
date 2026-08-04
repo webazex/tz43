@@ -1,9 +1,15 @@
 <?php
+
+/**
+ * Приклад локальної web-конфігурації.
+ *
+ * Скопіюйте файл як config/local/web.php
+ * та згенеруйте унікальний cookieValidationKey.
+ */
 return [
     'components' => [
         'request' => [
-            // !!! insert a secret key in the following (if it is empty) - this is required by cookie validation
-            'cookieValidationKey' => '',
+            'cookieValidationKey' => 'replace-with-random-secret-key',
         ],
-    ]
+    ],
 ];

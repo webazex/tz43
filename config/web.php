@@ -1,5 +1,5 @@
 <?php
-
+use yii\helpers\ArrayHelper;
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
 
@@ -74,6 +74,21 @@ if (YII_ENV_DEV) {
         // uncomment the following to add your IP if you are not connecting from localhost.
         //'allowedIPs' => ['127.0.0.1', '::1'],
     ];
+}
+$localConfigFile = __DIR__ . '/local/web.php';
+
+/**
+ * Локальні web-налаштування підключаються останніми,
+ * тому мають найвищий пріоритет.
+ *
+ * Тут зберігаються секрети та параметри конкретного середовища:
+ * cookieValidationKey, SMTP, зовнішні API тощо.
+ */
+if (is_file($localConfigFile)) {
+    $config = ArrayHelper::merge(
+        $config,
+        require $localConfigFile
+    );
 }
 
 return $config;
