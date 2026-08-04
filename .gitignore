@@ -46,3 +46,4 @@ tests/_support/_generated
 /yii.bat
 /c3.php
 /.editorconfig
+/config/local/*
