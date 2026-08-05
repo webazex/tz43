@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace app\contracts\results;
 
 /**
- * Application-level error of an operation.
+ * Помилка виконання application-операції.
  *
- * Не містить в собі специфічних transport-data
- * HTTP status, JSON, redirect, HTML и т.д.
+ * Не містить transport-specific даних:
+ * HTTP status, JSON, redirect, HTML тощо.
  */
 final readonly class OperationError
 {

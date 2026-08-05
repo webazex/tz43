@@ -55,7 +55,7 @@ final class Client extends ActiveRecord
                 'balance',
                 'match',
                 'pattern' => '/^\d{1,10}(?:\.\d{1,2})?$/',
-                'message' => 'Balance must be a non-negative decimal value with up to 2 decimal places.',
+                'message' => 'Баланс має бути невід’ємним десятковим числом не більше ніж з 2 знаками після крапки.',
             ],
 
             [
