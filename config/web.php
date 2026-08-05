@@ -79,12 +79,12 @@ if (YII_ENV_DEV) {
         // uncomment the following to add your IP if you are not connecting from localhost.
         //'allowedIPs' => ['127.0.0.1', '::1'],
     ];
-    //rest-api-шечку веземо
-
-    $config['modules']['api'] = [
-        'class' => \app\modules\api\Module::class,
-    ];
 }
+//rest-api-шечку веземо
+
+$config['modules']['api'] = [
+    'class' => \app\modules\api\Module::class,
+];
 $localConfigFile = __DIR__ . '/local/web.php';
 
 /**
