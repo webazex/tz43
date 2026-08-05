@@ -1,7 +1,9 @@
 <?php
-
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
+
+$diFactory = require __DIR__ . '/di.php';
+$di = $diFactory($params);
 
 $config = [
     'id' => 'basic-console',
@@ -35,6 +37,9 @@ $config = [
         ],
     ],
     */
+    'container' => [
+        'singletons' => $di,
+    ],
 ];
 
 if (YII_ENV_DEV) {

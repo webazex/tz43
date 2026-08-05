@@ -5,8 +5,10 @@ use yii\web\JsonParser;
 
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
-$rules = (file_exists(__DIR__ . '/rules.php')) ? include(__DIR__ . '/rules.php') : [];
-$di = (file_exists(__DIR__ . '/di.php')) ? include(__DIR__ . '/di.php') : [];
+$rules = is_file(__DIR__ . '/rules.php') ? require __DIR__ . '/rules.php' : [];
+
+$diFactory = require __DIR__ . '/di.php';
+$di = $diFactory($params);
 
 $config = [
     'id' => 'basic',
