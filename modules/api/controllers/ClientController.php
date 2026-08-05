@@ -11,6 +11,7 @@ use app\models\forms\client\CreateClientForm;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
+use app\modules\api\security\ApiTokenAuthenticator;
 
 
 final class ClientController extends ApiController
@@ -20,9 +21,19 @@ final class ClientController extends ApiController
     private const HTTP_UNPROCESSABLE_ENTITY = 422;
     private const HTTP_INTERNAL_SERVER_ERROR = 500;
 
-    public function __construct($id, $module, private readonly ClientService $clientService, $config = [])
-    {
-        parent::__construct($id, $module, $config);
+    public function __construct(
+        $id,
+        $module,
+        ApiTokenAuthenticator $tokenAuthenticator,
+        private readonly ClientService $clientService,
+        $config = [],
+    ) {
+        parent::__construct(
+            $id,
+            $module,
+            $tokenAuthenticator,
+            $config,
+        );
     }
 
     /**
