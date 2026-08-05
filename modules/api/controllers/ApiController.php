@@ -6,12 +6,14 @@ namespace app\modules\api\controllers;
 
 use yii\filters\AccessControl;
 use yii\rest\Controller;
+use yii\web\Response;
 use yii\web\UnauthorizedHttpException;
 
 /**
  * Базовий контролер REST API.
  *
- * Визначає спільні transport-specific правила для managem:contentReference[oaicite:0]{index=0}через поточну Yii session та CSRF-захист.
+ * Визначає спільні transport-specific правила для management API:
+ * JSON response, авторизацію через поточну Yii session та CSRF-захист.
  */
 abstract class ApiController extends Controller
 {
@@ -20,6 +22,12 @@ abstract class ApiController extends Controller
     public function behaviors(): array
     {
         $behaviors = parent::behaviors();
+
+        $behaviors['contentNegotiator']['formats'] = [
+            'application/json' => Response::FORMAT_JSON,
+        ];
+
+        $behaviors['contentNegotiator']['formatParam'] = null;
 
         $behaviors['access'] = [
             'class' => AccessControl::class,
