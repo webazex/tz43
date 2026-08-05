@@ -39,7 +39,7 @@ class SiteController extends Controller
                 'only' => ['logout'],
                 'rules' => [
                     [
-                        'actions' => ['logout'],
+                        'actions' => ['logout', 'dashboard'],
                         'allow' => true,
                         'roles' => ['@'],
                     ],
@@ -155,6 +155,8 @@ class SiteController extends Controller
 
     public function actionDashboard(): string
     {
-        return $this->render('dashboard/main');
+        $this->layout = 'dashboard/main';
+
+        return $this->render('dashboard');
     }
 }
