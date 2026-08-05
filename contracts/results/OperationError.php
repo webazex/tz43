@@ -12,6 +12,8 @@ namespace app\contracts\results;
  */
 final readonly class OperationError
 {
+    public const CODE_VALIDATION_FAILED = 'VALIDATION_FAILED';
+
     /**
      * @param array<string, mixed> $details
      */
