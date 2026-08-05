@@ -152,4 +152,9 @@ class SiteController extends Controller
     {
         return $this->render('about');
     }
+
+    public function actionDashboard(): string
+    {
+        return $this->render('dashboard/main');
+    }
 }
