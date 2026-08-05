@@ -11,9 +11,9 @@ use app\models\forms\client\CreateClientForm;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
-use yii\rest\Controller;
 
-final class ClientController extends Controller
+
+final class ClientController extends ApiController
 {
     private const HTTP_CREATED = 201;
     private const HTTP_CONFLICT = 409;
