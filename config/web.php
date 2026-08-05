@@ -1,9 +1,12 @@
 <?php
 
 use yii\helpers\ArrayHelper;
+use yii\web\JsonParser;
 
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
+$rules = (file_exists(__DIR__ . '/rules.php')) ? include(__DIR__ . '/rules.php') : [];
+
 
 $config = [
     'id' => 'basic',
@@ -27,6 +30,9 @@ $config = [
         'request' => [
             // !!! insert a secret key in the following (if it is empty) - this is required by cookie validation
             'cookieValidationKey' => '',
+            'parsers' => [
+                'application/json' => JsonParser::class,
+            ]
         ],
         'cache' => [
             'class' => \yii\caching\FileCache::class,
@@ -75,6 +81,11 @@ if (YII_ENV_DEV) {
         'class' => \yii\gii\Module::class,
         // uncomment the following to add your IP if you are not connecting from localhost.
         //'allowedIPs' => ['127.0.0.1', '::1'],
+    ];
+    //rest-api-шечку веземо
+
+    $config['modules']['api'] = [
+        'class' => \app\modules\api\Module::class,
     ];
 }
 $localConfigFile = __DIR__ . '/local/web.php';
