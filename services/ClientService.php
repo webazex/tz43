@@ -19,9 +19,11 @@ final class ClientService
      * Метод не знає і не має знати джерело даних, виконувати якісь транспортні операції чи специфічну обробку.
      * API, CLI, умовний Admin, і т.д. - виконують один і той самий app-use-case.
      * Тому власне тут і є OperationResult
+     *
      * @return OperationResult<Client>
      */
-    public function create(string $name, string $email, string $balance, string $status): OperationResult {
+    public function create(string $name, string $email, string $balance, string $status): OperationResult
+    {
         $client = new Client([
             'name' => $name,
             'email' => $email,
@@ -49,5 +51,28 @@ final class ClientService
         }
 
         return OperationResult::success($client);
+    }
+
+    /**
+     * Повертає сторінку списку клієнтів.
+     *
+     * @return array{items: list<Client>, totalCount: int}
+     */
+    public function getList(int $page, int $perPage): array
+    {
+        $query = Client::find()
+            ->orderBy(['id' => SORT_ASC]);
+
+        $totalCount = (int) (clone $query)->count();
+
+        $items = $query
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
+            ->all();
+
+        return [
+            'items' => $items,
+            'totalCount' => $totalCount,
+        ];
     }
 }

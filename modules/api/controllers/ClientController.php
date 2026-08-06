@@ -8,11 +8,10 @@ use app\contracts\results\OperationError;
 use app\contracts\results\OperationResult;
 use app\models\entities\Client;
 use app\models\forms\client\CreateClientForm;
+use app\modules\api\security\ApiTokenAuthenticator;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
-use app\modules\api\security\ApiTokenAuthenticator;
-
 
 final class ClientController extends ApiController
 {
@@ -20,6 +19,10 @@ final class ClientController extends ApiController
     private const HTTP_CONFLICT = 409;
     private const HTTP_UNPROCESSABLE_ENTITY = 422;
     private const HTTP_INTERNAL_SERVER_ERROR = 500;
+
+    private const DEFAULT_PAGE = 1;
+    private const DEFAULT_PER_PAGE = 20;
+    private const MAX_PER_PAGE = 100;
 
     public function __construct(
         $id,
@@ -42,8 +45,57 @@ final class ClientController extends ApiController
     protected function verbs(): array
     {
         return [
+            'index' => ['GET'],
             'create' => ['POST'],
         ];
+    }
+
+    /**
+     * Повертає сторінку списку клієнтів.
+     */
+    public function actionIndex(): OperationResponse
+    {
+        $page = max(
+            self::DEFAULT_PAGE,
+            (int) $this->request->get('page', self::DEFAULT_PAGE),
+        );
+
+        $perPage = min(
+            self::MAX_PER_PAGE,
+            max(
+                1,
+                (int) $this->request->get('per-page', self::DEFAULT_PER_PAGE),
+            ),
+        );
+
+        $result = $this->clientService->getList($page, $perPage);
+        $totalCount = $result['totalCount'];
+
+        $pageCount = $totalCount === 0
+            ? 0
+            : (int) ceil($totalCount / $perPage);
+
+        $items = array_map(
+            static fn (Client $client): ClientResource => new ClientResource($client),
+            $result['items'],
+        );
+
+        $this->setPaginationHeaders(
+            $page,
+            $perPage,
+            $pageCount,
+            $totalCount,
+        );
+
+        return OperationResponse::success([
+            'items' => $items,
+            'pagination' => [
+                'page' => $page,
+                'perPage' => $perPage,
+                'pageCount' => $pageCount,
+                'totalCount' => $totalCount,
+            ],
+        ]);
     }
 
     /**
@@ -106,6 +158,23 @@ final class ClientController extends ApiController
         return OperationResponse::success(
             new ClientResource($result->value())
         );
+    }
+
+    /**
+     * Додає метадані пагінації до HTTP headers.
+     */
+    private function setPaginationHeaders(
+        int $page,
+        int $perPage,
+        int $pageCount,
+        int $totalCount,
+    ): void {
+        $headers = $this->response->headers;
+
+        $headers->set('X-Pagination-Current-Page', (string) $page);
+        $headers->set('X-Pagination-Per-Page', (string) $perPage);
+        $headers->set('X-Pagination-Page-Count', (string) $pageCount);
+        $headers->set('X-Pagination-Total-Count', (string) $totalCount);
     }
 
     /**
