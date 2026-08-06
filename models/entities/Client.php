@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace app\models\entities;
 
+use app\models\entities\enums\ClientPendingProcessingStatus;
 use yii\behaviors\TimestampBehavior;
 use yii\db\ActiveRecord;
 
@@ -15,6 +16,7 @@ use yii\db\ActiveRecord;
  * @property string $email
  * @property string $balance
  * @property string $status
+ * @property string $pending_processing_status
  * @property int $created_at
  * @property int $updated_at
  */
@@ -65,6 +67,17 @@ final class Client extends ActiveRecord
                     self::STATUS_ACTIVE,
                     self::STATUS_BLOCKED,
                 ],
+            ],
+
+            [
+                'pending_processing_status',
+                'default',
+                'value' => ClientPendingProcessingStatus::Idle->value,
+            ],
+            [
+                'pending_processing_status',
+                'in',
+                'range' => array_column(ClientPendingProcessingStatus::cases(), 'value'),
             ],
 
             [['created_at', 'updated_at'], 'integer'],
