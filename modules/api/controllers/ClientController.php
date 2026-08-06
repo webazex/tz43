@@ -20,6 +20,8 @@ final class ClientController extends ApiController
     private const HTTP_UNPROCESSABLE_ENTITY = 422;
     private const HTTP_INTERNAL_SERVER_ERROR = 500;
 
+    private const HTTP_NOT_FOUND = 404;
+
     private const DEFAULT_PAGE = 1;
     private const DEFAULT_PER_PAGE = 20;
     private const MAX_PER_PAGE = 100;
@@ -47,6 +49,7 @@ final class ClientController extends ApiController
         return [
             'index' => ['GET'],
             'create' => ['POST'],
+            'view' => ['GET'],
         ];
     }
 
@@ -185,10 +188,31 @@ final class ClientController extends ApiController
         return match ($error->code) {
             OperationError::CODE_VALIDATION_FAILED,
             ClientService::ERROR_CREATE_FAILED => self::HTTP_UNPROCESSABLE_ENTITY,
+            ClientService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
 
             ClientService::ERROR_DATA_CONFLICT => self::HTTP_CONFLICT,
 
             default => self::HTTP_INTERNAL_SERVER_ERROR,
         };
+    }
+
+    /**
+     * Повертає одного клієнта за його ID.
+     */
+    public function actionView(int $id): OperationResponse
+    {
+        $result = $this->clientService->getById($id);
+
+        if ($result->isFailure()) {
+            $error = $result->error();
+
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        return OperationResponse::success(
+            new ClientResource($result->value())
+        );
     }
 }

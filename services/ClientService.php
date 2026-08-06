@@ -13,6 +13,7 @@ final class ClientService
 {
     public const ERROR_CREATE_FAILED = 'CLIENT_CREATE_FAILED';
     public const ERROR_DATA_CONFLICT = 'CLIENT_DATA_CONFLICT';
+    public const ERROR_NOT_FOUND = 'CLIENT_NOT_FOUND';
 
     /**
      * Беремо вже готовий набір даних про клієнта і створюємо клієнта.
@@ -46,6 +47,29 @@ final class ClientService
             return OperationResult::failure(
                 new OperationError(
                     code: self::ERROR_DATA_CONFLICT,
+                )
+            );
+        }
+
+        return OperationResult::success($client);
+    }
+
+    /**
+     * Повертає клієнта за його ID.
+     *
+     * @return OperationResult<Client>
+     */
+    public function getById(int $id): OperationResult
+    {
+        $client = Client::findOne($id);
+
+        if ($client === null) {
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_NOT_FOUND,
+                    details: [
+                        'id' => $id,
+                    ],
                 )
             );
         }
