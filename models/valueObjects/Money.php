@@ -5,12 +5,19 @@ declare(strict_types=1);
 namespace app\models\valueObjects;
 
 use InvalidArgumentException;
+use OverflowException;
 
 final class Money
 {
+    private const MAX_CENTS = 999_999_999_999;
     private function __construct(
         private readonly int $cents,
     ) {
+        if (abs($this->cents) > self::MAX_CENTS) {
+            throw new OverflowException(
+                'Грошове значення перевищує допустимий діапазон DECIMAL(12,2).'
+            );
+        }
     }
 
     public static function fromDecimal(string $amount): self
