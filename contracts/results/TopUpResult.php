@@ -8,8 +8,7 @@ final readonly class TopUpResult
 {
     public function __construct(
         public string $oldBalance,
-        public string $newBalance,
-        public bool $pendingProcessingStarted,
+        public string $newBalance
     ) {
     }
 }
