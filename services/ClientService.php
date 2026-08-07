@@ -8,12 +8,19 @@ use app\contracts\results\OperationError;
 use app\contracts\results\OperationResult;
 use app\models\entities\Client;
 use yii\db\IntegrityException;
+use app\contracts\results\TopUpResult;
+use app\models\valueObjects\Money;
+use InvalidArgumentException;
+use OverflowException;
 
 final class ClientService
 {
     public const ERROR_CREATE_FAILED = 'CLIENT_CREATE_FAILED';
     public const ERROR_DATA_CONFLICT = 'CLIENT_DATA_CONFLICT';
     public const ERROR_NOT_FOUND = 'CLIENT_NOT_FOUND';
+    public const ERROR_TOP_UP_INVALID_AMOUNT = 'CLIENT_TOP_UP_INVALID_AMOUNT';
+    public const ERROR_BALANCE_LIMIT_EXCEEDED = 'CLIENT_BALANCE_LIMIT_EXCEEDED';
+    public const ERROR_TOP_UP_FAILED = 'CLIENT_TOP_UP_FAILED';
 
     /**
      * Беремо вже готовий набір даних про клієнта і створюємо клієнта.
@@ -98,5 +105,92 @@ final class ClientService
             'items' => $items,
             'totalCount' => $totalCount,
         ];
+    }
+
+    /**
+     * Поповнюємо баланс клієнта.
+     *
+     * Блокує запис клієнта до завершення транзакції,
+     * щоб паралельні фінансові операції не втратили зміни балансу.
+     *
+     * @return OperationResult<TopUpResult>
+     */
+    public function topUp(int $clientId, string $amount): OperationResult
+    {
+        try {
+            $topUpAmount = Money::fromDecimal($amount);
+        } catch (InvalidArgumentException) {
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_TOP_UP_INVALID_AMOUNT,
+                    details: [
+                        'amount' => $amount,
+                    ],
+                )
+            );
+        }
+
+        if ($topUpAmount->cents() === 0) {
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_TOP_UP_INVALID_AMOUNT,
+                    details: [
+                        'amount' => $amount,
+                    ],
+                )
+            );
+        }
+
+        return Client::getDb()->transaction(
+            function () use ($clientId, $topUpAmount): OperationResult {
+                /** @var Client|null $client */
+                $client = Client::findBySql(
+                    'SELECT * FROM {{%client}} WHERE [[id]] = :id FOR UPDATE',
+                    [
+                        ':id' => $clientId,
+                    ],
+                )->one();
+
+                if ($client === null) {
+                    return OperationResult::failure(
+                        new OperationError(
+                            code: self::ERROR_NOT_FOUND,
+                            details: [
+                                'id' => $clientId,
+                            ],
+                        )
+                    );
+                }
+
+                $oldBalance = Money::fromDecimal($client->balance);
+
+                try {
+                    $newBalance = $oldBalance->add($topUpAmount);
+                } catch (OverflowException) {
+                    return OperationResult::failure(
+                        new OperationError(
+                            code: self::ERROR_BALANCE_LIMIT_EXCEEDED,
+                        )
+                    );
+                }
+
+                $client->balance = $newBalance->toDecimal();
+
+                if (!$client->save(false)) {
+                    return OperationResult::failure(
+                        new OperationError(
+                            code: self::ERROR_TOP_UP_FAILED,
+                        )
+                    );
+                }
+
+                return OperationResult::success(
+                    new TopUpResult(
+                        oldBalance: $oldBalance->toDecimal(),
+                        newBalance: $newBalance->toDecimal(),
+                    )
+                );
+            }
+        );
     }
 }
