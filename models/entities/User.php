@@ -59,9 +59,9 @@ final class User extends ActiveRecord implements IdentityInterface
     public function rules(): array
     {
         return [
-            [['username', 'email', 'auth_key', 'password_hash'], 'required'],
-
             [['username', 'email'], 'trim'],
+
+            [['username', 'email', 'auth_key', 'password_hash'], 'required'],
 
             ['username', 'string', 'min' => 3, 'max' => 64],
             ['username', 'unique', 'message' => 'This username is already in use.'],
@@ -110,13 +110,11 @@ final class User extends ActiveRecord implements IdentityInterface
     /**
      * Access token для адміністративної панелі не використовується.
      *
-     * API-клієнти пізніше отримають окремий механізм автентифікації,
-     * тому токени не змішуються з обліковими записами працівників.
+     * API-клієнти мають окремий механізм автентифікації,
+     * тому їхні токени не змішуються з обліковими записами працівників.
      */
-    public static function findIdentityByAccessToken(
-        $token,
-        $type = null
-    ): static|null {
+    public static function findIdentityByAccessToken($token, $type = null): static|null
+    {
         return null;
     }
 
@@ -181,7 +179,8 @@ final class User extends ActiveRecord implements IdentityInterface
      * Відкритий пароль не зберігається у властивостях ActiveRecord
      * і ніколи не записується в базу даних.
      */
-    public function setPassword(string $password, Security $security): void {
+    public function setPassword(string $password, Security $security): void
+    {
         $this->password_hash = $security->generatePasswordHash($password);
     }
 

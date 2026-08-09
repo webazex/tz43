@@ -41,12 +41,31 @@ final class Client extends ActiveRecord
         ];
     }
 
+    /**
+     * Перевіряє інваріанти клієнта перед збереженням.
+     *
+     * Нормалізація рядкових значень та встановлення значень
+     * за замовчуванням виконуються до required-валідації.
+     * Завдяки цьому рядки з пробілів не проходять перевірку,
+     * а відсутній status коректно перетворюється на active.
+     */
     public function rules(): array
     {
         return [
-            [['name', 'email', 'balance', 'status'], 'required'],
-
             [['name', 'email'], 'trim'],
+
+            [
+                'status',
+                'default',
+                'value' => self::STATUS_ACTIVE,
+            ],
+            [
+                'pending_processing_status',
+                'default',
+                'value' => ClientPendingProcessingStatus::Idle->value,
+            ],
+
+            [['name', 'email', 'balance', 'status'], 'required'],
 
             ['name', 'string', 'max' => 255],
 
@@ -71,11 +90,6 @@ final class Client extends ActiveRecord
 
             [
                 'pending_processing_status',
-                'default',
-                'value' => ClientPendingProcessingStatus::Idle->value,
-            ],
-            [
-                'pending_processing_status',
                 'in',
                 'range' => array_column(ClientPendingProcessingStatus::cases(), 'value'),
             ],
@@ -84,6 +98,12 @@ final class Client extends ActiveRecord
         ];
     }
 
+    /**
+     * Перевіряє, чи заборонено клієнту створювати нові замовлення.
+     *
+     * Блокування не забороняє поповнювати баланс або оплачувати
+     * вже створені pending-замовлення.
+     */
     public function isBlocked(): bool
     {
         return $this->status === self::STATUS_BLOCKED;
