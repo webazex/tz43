@@ -33,6 +33,8 @@ final class OrderService
     public const ERROR_PERSISTENCE_FAILED = 'ORDER_PERSISTENCE_FAILED';
     public const ERROR_LIST_FAILED = 'ORDER_LIST_FAILED';
 
+    public const ERROR_NOT_FOUND = 'ORDER_NOT_FOUND';
+
     /**
      * Створює замовлення та визначає його початковий статус.
      *
@@ -203,6 +205,34 @@ final class OrderService
                 )
             );
         }
+    }
+
+    /**
+     * Повертає замовлення за його primary key.
+     *
+     * Операція є read-only: не блокує рядок, не відкриває транзакцію
+     * та не змінює баланс клієнта або lifecycle замовлення.
+     *
+     * Пошук за primary key виконується одним SQL-запитом.
+     *
+     * @return OperationResult<Order>
+     */
+    public function getById(int $id): OperationResult
+    {
+        $order = Order::findOne($id);
+
+        if ($order === null) {
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_NOT_FOUND,
+                    details: [
+                        'id' => $id,
+                    ],
+                )
+            );
+        }
+
+        return OperationResult::success($order);
     }
 
     /**

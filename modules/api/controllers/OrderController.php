@@ -17,8 +17,8 @@ use app\services\OrderService;
 /**
  * REST-контролер замовлень.
  *
- * Реалізує створення та пагінований список замовлень. Читання одного
- * замовлення, скасування та Queue Job додаються окремими кроками.
+ * Реалізує створення, пагінований список та читання одного замовлення.
+ * Скасування та Queue Job додаються окремими кроками.
  */
 final class OrderController extends ApiController
 {
@@ -50,6 +50,7 @@ final class OrderController extends ApiController
     {
         return [
             'index' => ['GET'],
+            'view' => ['GET'],
             'create' => ['POST'],
         ];
     }
@@ -144,6 +145,29 @@ final class OrderController extends ApiController
     }
 
     /**
+     * Повертає одне замовлення за його ID.
+     *
+     * Controller не виконує SQL-запити напряму: отримання сутності
+     * делегується OrderService, а зовнішній формат визначає OrderResource.
+     */
+    public function actionView(int $id): OperationResponse
+    {
+        $result = $this->orderService->getById($id);
+
+        if ($result->isFailure()) {
+            $error = $result->error();
+
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        return OperationResponse::success(
+            new OrderResource($result->value())
+        );
+    }
+
+    /**
      * Створює нове замовлення.
      */
     public function actionCreate(): OperationResponse
@@ -227,7 +251,8 @@ final class OrderController extends ApiController
             OrderService::ERROR_INVALID_AMOUNT,
             OrderService::ERROR_CREATE_FAILED => self::HTTP_UNPROCESSABLE_ENTITY,
 
-            OrderService::ERROR_CLIENT_NOT_FOUND => self::HTTP_NOT_FOUND,
+            OrderService::ERROR_CLIENT_NOT_FOUND,
+            OrderService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
 
             OrderService::ERROR_CLIENT_BLOCKED,
             OrderService::ERROR_CLIENT_BALANCE_PROCESSING => self::HTTP_CONFLICT,
