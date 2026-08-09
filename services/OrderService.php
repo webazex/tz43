@@ -31,6 +31,7 @@ final class OrderService
     public const ERROR_INVALID_AMOUNT = 'ORDER_INVALID_AMOUNT';
     public const ERROR_CREATE_FAILED = 'ORDER_CREATE_FAILED';
     public const ERROR_PERSISTENCE_FAILED = 'ORDER_PERSISTENCE_FAILED';
+    public const ERROR_LIST_FAILED = 'ORDER_LIST_FAILED';
 
     /**
      * Створює замовлення та визначає його початковий статус.
@@ -199,6 +200,61 @@ final class OrderService
             return OperationResult::failure(
                 new OperationError(
                     code: self::ERROR_PERSISTENCE_FAILED,
+                )
+            );
+        }
+    }
+
+    /**
+     * Повертає сторінку замовлень із необов'язковими фільтрами.
+     *
+     * Для count і вибірки використовується однаково відфільтрований query.
+     * Сортування за created_at та id робить порядок стабільним, навіть якщо
+     * кілька замовлень створено протягом однієї секунди.
+     *
+     * @return OperationResult<array{items: list<Order>, totalCount: int}>
+     */
+    public function getList(int $page, int $perPage, ?int $clientId, ?string $status): OperationResult
+    {
+        try {
+            $query = Order::find();
+
+            if ($clientId !== null) {
+                $query->andWhere(['client_id' => $clientId]);
+            }
+
+            if ($status !== null) {
+                $query->andWhere(['status' => $status]);
+            }
+
+            $query->orderBy([
+                'created_at' => SORT_DESC,
+                'id' => SORT_DESC,
+            ]);
+
+            /**
+             * Пагінація потребує двох SQL-запитів:
+             * COUNT(*) для метаданих і SELECT тільки поточної сторінки.
+             * Дані клієнта не підвантажуються, тому N+1 запитів немає.
+             */
+            $totalCount = (int) (clone $query)->count();
+
+            /** @var list<Order> $items */
+            $items = $query
+                ->offset(($page - 1) * $perPage)
+                ->limit($perPage)
+                ->all();
+
+            return OperationResult::success([
+                'items' => $items,
+                'totalCount' => $totalCount,
+            ]);
+        } catch (Throwable $exception) {
+            Yii::error($exception, __METHOD__);
+
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_LIST_FAILED,
                 )
             );
         }

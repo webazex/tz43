@@ -21,5 +21,6 @@ return [
     'POST clients' => 'api/client/create',
 
     // API: orders
+    'GET orders' => 'api/order/index',
     'POST orders' => 'api/order/create',
 ];
