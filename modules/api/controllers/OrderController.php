@@ -17,8 +17,8 @@ use app\services\OrderService;
 /**
  * REST-контролер замовлень.
  *
- * Реалізує створення, пагінований список та читання одного замовлення.
- * Скасування та Queue Job додаються окремими кроками.
+ * Реалізує створення, пагінований список, читання та скасування замовлень.
+ * Business rules і транзакції делегуються OrderService.
  */
 final class OrderController extends ApiController
 {
@@ -52,6 +52,7 @@ final class OrderController extends ApiController
             'index' => ['GET'],
             'view' => ['GET'],
             'create' => ['POST'],
+            'cancel' => ['POST'],
         ];
     }
 
@@ -255,9 +256,33 @@ final class OrderController extends ApiController
             OrderService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
 
             OrderService::ERROR_CLIENT_BLOCKED,
-            OrderService::ERROR_CLIENT_BALANCE_PROCESSING => self::HTTP_CONFLICT,
+            OrderService::ERROR_CLIENT_BALANCE_PROCESSING,
+            OrderService::ERROR_NOT_PENDING => self::HTTP_CONFLICT,
 
             default => self::HTTP_INTERNAL_SERVER_ERROR,
         };
+    }
+
+    /**
+     * Скасовує замовлення, якщо воно все ще має статус pending.
+     *
+     * Request body не потрібний: ID надходить із маршруту, а допустимість
+     * переходу статусу перевіряється всередині OrderService.
+     */
+    public function actionCancel(int $id): OperationResponse
+    {
+        $result = $this->orderService->cancel($id);
+
+        if ($result->isFailure()) {
+            $error = $result->error();
+
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        return OperationResponse::success(
+            new OrderResource($result->value())
+        );
     }
 }

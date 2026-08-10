@@ -15,6 +15,7 @@ use InvalidArgumentException;
 use OverflowException;
 use Throwable;
 use Yii;
+use RuntimeException;
 
 /**
  * Application service операцій із замовленнями.
@@ -34,6 +35,7 @@ final class OrderService
     public const ERROR_LIST_FAILED = 'ORDER_LIST_FAILED';
 
     public const ERROR_NOT_FOUND = 'ORDER_NOT_FOUND';
+    public const ERROR_NOT_PENDING = 'ORDER_NOT_PENDING';
 
     /**
      * Створює замовлення та визначає його початковий статус.
@@ -202,6 +204,172 @@ final class OrderService
             return OperationResult::failure(
                 new OperationError(
                     code: self::ERROR_PERSISTENCE_FAILED,
+                )
+            );
+        }
+    }
+
+    /**
+     * Скасовує pending-замовлення.
+     *
+     * Перехід дозволений тільки:
+     *
+     * pending → canceled
+     *
+     * Paid-замовлення не скасовується, оскільки кошти вже списані.
+     * Повторне скасування canceled-замовлення також повертає business failure.
+     *
+     * Статус клієнта active/blocked не перевіряється: блокування забороняє
+     * створення нових замовлень, але не керування вже створеними.
+     *
+     * Рядок Client блокується перед повторним читанням Order. Так cancellation
+     * використовує ту саму дисципліну блокувань, що й створення замовлення
+     * та PendingOrdersProcessor:
+     *
+     * Client lock → Order lock → зміна статусу.
+     *
+     * Якщо Queue Job уже обробляє клієнта, cancellation дочекається завершення
+     * Job і перевірить актуальний статус замовлення.
+     *
+     * @return OperationResult<Order>
+     */
+    public function cancel(int $id): OperationResult
+    {
+        $transaction = null;
+
+        try {
+            /**
+             * Попереднє читання потрібне лише для визначення Client,
+             * рядок якого необхідно заблокувати першим.
+             *
+             * Після отримання блокування Order буде прочитаний повторно,
+             * тому рішення не приймається на підставі цього snapshot.
+             */
+            $existingOrder = Order::findOne($id);
+
+            if ($existingOrder === null) {
+                return OperationResult::failure(
+                    new OperationError(
+                        code: self::ERROR_NOT_FOUND,
+                        details: [
+                            'id' => $id,
+                        ],
+                    )
+                );
+            }
+
+            $clientId = (int) $existingOrder->client_id;
+
+            $transaction = Order::getDb()->beginTransaction();
+
+            /**
+             * Усі операції, здатні змінити фінансовий lifecycle замовлення,
+             * спочатку блокують одного й того самого Client.
+             *
+             * Це серіалізує cancellation і PendingOrdersProcessor та запобігає
+             * ситуації, коли Job одночасно переводить замовлення у paid,
+             * а HTTP-запит — у canceled.
+             *
+             * @var Client|null $client
+             */
+            $client = Client::findBySql(
+                'SELECT * FROM {{%client}} WHERE [[id]] = :id FOR UPDATE',
+                [
+                    ':id' => $clientId,
+                ],
+            )->one();
+
+            /**
+             * Зовнішній ключ із RESTRICT не дозволяє існування Order
+             * без Client. Відсутність клієнта означає пошкодження цілісності
+             * даних або позасистемне втручання.
+             */
+            if ($client === null) {
+                throw new RuntimeException(
+                    'Не знайдено клієнта скасованого замовлення.'
+                );
+            }
+
+            /**
+             * Повторно читаємо та блокуємо Order після отримання Client lock.
+             * Тепер status гарантовано актуальний відносно інших application
+             * use cases, які дотримуються тієї самої дисципліни блокувань.
+             *
+             * @var Order|null $order
+             */
+            $order = Order::findBySql(
+                'SELECT * FROM {{%client_order}} WHERE [[id]] = :id FOR UPDATE',
+                [
+                    ':id' => $id,
+                ],
+            )->one();
+
+            if ($order === null) {
+                $transaction->rollBack();
+
+                return OperationResult::failure(
+                    new OperationError(
+                        code: self::ERROR_NOT_FOUND,
+                        details: [
+                            'id' => $id,
+                        ],
+                    )
+                );
+            }
+
+            /**
+             * client_id не змінюється жодним штатним use case.
+             * Невідповідність означає конкурентну позасистемну зміну.
+             */
+            if ((int) $order->client_id !== $clientId) {
+                throw new RuntimeException(
+                    'Клієнт замовлення змінився під час скасування.'
+                );
+            }
+
+            if ($order->status !== OrderStatus::Pending->value) {
+                $transaction->rollBack();
+
+                return OperationResult::failure(
+                    new OperationError(
+                        code: self::ERROR_NOT_PENDING,
+                        details: [
+                            'id' => $id,
+                            'currentStatus' => $order->status,
+                            'requiredStatus' => OrderStatus::Pending->value,
+                        ],
+                    )
+                );
+            }
+
+            $order->status = OrderStatus::Canceled->value;
+
+            /**
+             * Зберігаємо тільки атрибути поточного use case.
+             * TimestampBehavior встановить актуальне значення updated_at.
+             */
+            if (!$order->save(false, ['status', 'updated_at'])) {
+                throw new RuntimeException(
+                    'Не вдалося зберегти скасування замовлення.'
+                );
+            }
+
+            $transaction->commit();
+
+            return OperationResult::success($order);
+        } catch (Throwable $exception) {
+            if ($transaction !== null && $transaction->isActive) {
+                $transaction->rollBack();
+            }
+
+            Yii::error($exception, __METHOD__);
+
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_PERSISTENCE_FAILED,
+                    details: [
+                        'id' => $id,
+                    ],
                 )
             );
         }

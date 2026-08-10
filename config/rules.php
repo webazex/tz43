@@ -22,6 +22,7 @@ return [
     'POST clients' => 'api/client/create',
 
     // API: orders
+    'POST orders/<id:\d+>/cancel' => 'api/order/cancel',
     'GET orders/<id:\d+>' => 'api/order/view',
     'GET orders' => 'api/order/index',
     'POST orders' => 'api/order/create',
