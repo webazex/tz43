@@ -12,6 +12,9 @@ use app\modules\api\security\ApiTokenAuthenticator;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
+use app\contracts\results\TopUpResult;
+use app\models\forms\client\TopUpClientForm;
+
 
 final class ClientController extends ApiController
 {
@@ -20,6 +23,7 @@ final class ClientController extends ApiController
     private const HTTP_UNPROCESSABLE_ENTITY = 422;
     private const HTTP_INTERNAL_SERVER_ERROR = 500;
 
+    private const HTTP_ACCEPTED = 202;
     private const HTTP_NOT_FOUND = 404;
 
     private const DEFAULT_PAGE = 1;
@@ -50,6 +54,7 @@ final class ClientController extends ApiController
             'index' => ['GET'],
             'create' => ['POST'],
             'view' => ['GET'],
+            'top-up' => ['POST'],
         ];
     }
 
@@ -187,10 +192,19 @@ final class ClientController extends ApiController
     {
         return match ($error->code) {
             OperationError::CODE_VALIDATION_FAILED,
-            ClientService::ERROR_CREATE_FAILED => self::HTTP_UNPROCESSABLE_ENTITY,
-            ClientService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
+            ClientService::ERROR_CREATE_FAILED,
+            ClientService::ERROR_TOP_UP_INVALID_AMOUNT,
+            ClientService::ERROR_BALANCE_LIMIT_EXCEEDED =>
+            self::HTTP_UNPROCESSABLE_ENTITY,
 
-            ClientService::ERROR_DATA_CONFLICT => self::HTTP_CONFLICT,
+            ClientService::ERROR_NOT_FOUND =>
+            self::HTTP_NOT_FOUND,
+
+            ClientService::ERROR_DATA_CONFLICT =>
+            self::HTTP_CONFLICT,
+
+            ClientService::ERROR_TOP_UP_FAILED =>
+            self::HTTP_INTERNAL_SERVER_ERROR,
 
             default => self::HTTP_INTERNAL_SERVER_ERROR,
         };
@@ -214,5 +228,81 @@ final class ClientController extends ApiController
         return OperationResponse::success(
             new ClientResource($result->value())
         );
+    }
+
+    /**
+     * Поповнює баланс клієнта та запускає асинхронну
+     * обробку його pending-замовлень.
+     */
+    public function actionTopUp(int $id): OperationResponse
+    {
+        $result = $this->executeTopUp(
+            $id,
+            $this->request->bodyParams,
+        );
+
+        return $this->buildTopUpResponse($result);
+    }
+
+    /**
+     * Перевіряє input і запускає application use case поповнення.
+     *
+     * @param array<string, mixed> $data
+     * @return OperationResult<TopUpResult>
+     */
+    private function executeTopUp(int $clientId, array $data): OperationResult
+    {
+        $form = new TopUpClientForm();
+        $form->load($data, '');
+
+        if (!$form->validate()) {
+            return OperationResult::failure(
+                new OperationError(
+                    code: OperationError::CODE_VALIDATION_FAILED,
+                    details: [
+                        'fields' => $form->getErrors(),
+                    ],
+                )
+            );
+        }
+
+        return $this->clientService->topUp(
+            $clientId,
+            (string) $form->amount,
+        );
+    }
+
+    /**
+     * Перетворює результат поповнення у зовнішній HTTP response.
+     *
+     * HTTP 202 показує, що синхронна частина вже завершена,
+     * але Queue Job з оплатою pending-замовлень ще може виконуватися.
+     *
+     * @param OperationResult<TopUpResult> $result
+     */
+    private function buildTopUpResponse(OperationResult $result): OperationResponse
+    {
+        if ($result->isFailure()) {
+            $error = $result->error();
+
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        /** @var TopUpResult $topUpResult */
+        $topUpResult = $result->value();
+
+        $this->response->statusCode = self::HTTP_ACCEPTED;
+
+        /**
+         * balanceAfterTopUp — баланс одразу після зарахування.
+         * Це не фінальний баланс після виконання Queue Job.
+         */
+        return OperationResponse::success([
+            'creditedAmount' => $topUpResult->creditedAmount,
+            'oldBalance' => $topUpResult->oldBalance,
+            'balanceAfterTopUp' => $topUpResult->balanceAfterTopUp,
+        ]);
     }
 }

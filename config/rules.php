@@ -16,6 +16,7 @@ return [
     'GET captcha' => 'site/captcha',
 
     // API
+    'POST clients/<id:\d+>/topup' => 'api/client/top-up',
     'GET clients/<id:\d+>' => 'api/client/view',
     'GET clients' => 'api/client/index',
     'POST clients' => 'api/client/create',
