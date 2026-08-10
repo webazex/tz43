@@ -12,6 +12,12 @@ use app\contracts\results\TopUpResult;
 use app\models\valueObjects\Money;
 use InvalidArgumentException;
 use OverflowException;
+use app\jobs\ProcessPendingOrdersJob;
+use app\models\entities\enums\ClientPendingProcessingStatus;
+use RuntimeException;
+use Throwable;
+use Yii;
+use yii\queue\Queue;
 
 final class ClientService
 {
@@ -30,6 +36,11 @@ final class ClientService
      *
      * @return OperationResult<Client>
      */
+
+    /**
+     * Queue передається через DI та посилається на application-компонент `queue`.
+     */
+    public function __construct(private readonly Queue $queue){}
     public function create(string $name, string $email, string $balance, string $status): OperationResult
     {
         $client = new Client([
@@ -108,10 +119,15 @@ final class ClientService
     }
 
     /**
-     * Поповнюємо баланс клієнта.
+     * Поповнює баланс клієнта та ставить асинхронну обробку
+     * pending-замовлень у DB Queue.
      *
-     * Блокує запис клієнта до завершення транзакції,
-     * щоб паралельні фінансові операції не втратили зміни балансу.
+     * Зміна балансу, lifecycle-статусу та створення Queue Job виконуються
+     * в одній DB-транзакції. Якщо Job не вдалося поставити в чергу,
+     * поповнення балансу також буде відкочено.
+     *
+     * Заблокованому клієнту поповнення дозволено: блокування забороняє
+     * лише створення нових замовлень.
      *
      * @return OperationResult<TopUpResult>
      */
@@ -130,7 +146,7 @@ final class ClientService
             );
         }
 
-        if ($topUpAmount->cents() === 0) {
+        if ($topUpAmount->isZero()) {
             return OperationResult::failure(
                 new OperationError(
                     code: self::ERROR_TOP_UP_INVALID_AMOUNT,
@@ -141,56 +157,115 @@ final class ClientService
             );
         }
 
-        return Client::getDb()->transaction(
-            function () use ($clientId, $topUpAmount): OperationResult {
-                /** @var Client|null $client */
-                $client = Client::findBySql(
-                    'SELECT * FROM {{%client}} WHERE [[id]] = :id FOR UPDATE',
-                    [
-                        ':id' => $clientId,
-                    ],
-                )->one();
+        try {
+            return Client::getDb()->transaction(
+                function () use ($clientId, $topUpAmount): OperationResult {
+                    /**
+                     * Блокування рядка серіалізує top-up, створення замовлень
+                     * і виконання PendingOrdersProcessor для одного клієнта.
+                     *
+                     * @var Client|null $client
+                     */
+                    $client = Client::findBySql(
+                        'SELECT * FROM {{%client}} WHERE [[id]] = :id FOR UPDATE',
+                        [
+                            ':id' => $clientId,
+                        ],
+                    )->one();
 
-                if ($client === null) {
-                    return OperationResult::failure(
-                        new OperationError(
-                            code: self::ERROR_NOT_FOUND,
-                            details: [
-                                'id' => $clientId,
+                    if ($client === null) {
+                        return OperationResult::failure(
+                            new OperationError(
+                                code: self::ERROR_NOT_FOUND,
+                                details: [
+                                    'id' => $clientId,
+                                ],
+                            )
+                        );
+                    }
+
+                    $oldBalance = Money::fromDecimal($client->balance);
+
+                    try {
+                        $balanceAfterTopUp = $oldBalance->add($topUpAmount);
+                    } catch (OverflowException) {
+                        return OperationResult::failure(
+                            new OperationError(
+                                code: self::ERROR_BALANCE_LIMIT_EXCEEDED,
+                            )
+                        );
+                    }
+
+                    $client->balance = $balanceAfterTopUp->toDecimal();
+                    $client->pending_processing_status =
+                        ClientPendingProcessingStatus::Queued->value;
+
+                    /**
+                     * Зберігаємо тільки атрибути поточного use case.
+                     * TimestampBehavior самостійно оновить updated_at.
+                     */
+                    if (
+                        !$client->save(
+                            false,
+                            [
+                                'balance',
+                                'pending_processing_status',
+                                'updated_at',
                             ],
                         )
+                    ) {
+                        throw new RuntimeException(
+                            'Не вдалося зберегти поповнений баланс клієнта.'
+                        );
+                    }
+
+                    /**
+                     * У payload зберігається тільки clientId.
+                     * Processor прочитає актуальний баланс і pending-замовлення
+                     * вже під час виконання Job.
+                     */
+                    $jobId = $this->queue->push(
+                        new ProcessPendingOrdersJob([
+                            'clientId' => $clientId,
+                        ])
                     );
-                }
 
-                $oldBalance = Money::fromDecimal($client->balance);
+                    /**
+                     * Queue::push() може повернути null, якщо постановку Job
+                     * перехопив EVENT_BEFORE_PUSH. Такий результат не можна
+                     * вважати успішним поповненням.
+                     */
+                    if ($jobId === null) {
+                        throw new RuntimeException(
+                            'Queue не повернула ідентифікатор створеної Job.'
+                        );
+                    }
 
-                try {
-                    $newBalance = $oldBalance->add($topUpAmount);
-                } catch (OverflowException) {
-                    return OperationResult::failure(
-                        new OperationError(
-                            code: self::ERROR_BALANCE_LIMIT_EXCEEDED,
+                    return OperationResult::success(
+                        new TopUpResult(
+                            creditedAmount: $topUpAmount->toDecimal(),
+                            oldBalance: $oldBalance->toDecimal(),
+                            balanceAfterTopUp: $balanceAfterTopUp->toDecimal(),
                         )
                     );
                 }
+            );
+        } catch (Throwable $exception) {
+            /**
+             * transaction() уже відкотив зміну Client і вставку в queue.
+             * Технічні подробиці залишаються в application log,
+             * а зовнішній transport отримає стабільний application-код.
+             */
+            Yii::error($exception, __METHOD__);
 
-                $client->balance = $newBalance->toDecimal();
-
-                if (!$client->save(false)) {
-                    return OperationResult::failure(
-                        new OperationError(
-                            code: self::ERROR_TOP_UP_FAILED,
-                        )
-                    );
-                }
-
-                return OperationResult::success(
-                    new TopUpResult(
-                        oldBalance: $oldBalance->toDecimal(),
-                        newBalance: $newBalance->toDecimal(),
-                    )
-                );
-            }
-        );
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_TOP_UP_FAILED,
+                    details: [
+                        'clientId' => $clientId,
+                    ],
+                )
+            );
+        }
     }
 }
