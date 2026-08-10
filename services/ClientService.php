@@ -6,17 +6,17 @@ namespace app\services;
 
 use app\contracts\results\OperationError;
 use app\contracts\results\OperationResult;
-use app\models\entities\Client;
-use yii\db\IntegrityException;
 use app\contracts\results\TopUpResult;
+use app\jobs\ProcessPendingOrdersJob;
+use app\models\entities\Client;
+use app\models\entities\enums\ClientPendingProcessingStatus;
 use app\models\valueObjects\Money;
 use InvalidArgumentException;
 use OverflowException;
-use app\jobs\ProcessPendingOrdersJob;
-use app\models\entities\enums\ClientPendingProcessingStatus;
 use RuntimeException;
 use Throwable;
 use Yii;
+use yii\db\IntegrityException;
 use yii\queue\Queue;
 
 final class ClientService
@@ -29,18 +29,21 @@ final class ClientService
     public const ERROR_TOP_UP_FAILED = 'CLIENT_TOP_UP_FAILED';
 
     /**
+     * Queue передається через DI та посилається
+     * на application-компонент `queue`.
+     */
+    public function __construct(private readonly Queue $queue)
+    {
+    }
+
+    /**
      * Беремо вже готовий набір даних про клієнта і створюємо клієнта.
-     * Метод не знає і не має знати джерело даних, виконувати якісь транспортні операції чи специфічну обробку.
-     * API, CLI, умовний Admin, і т.д. - виконують один і той самий app-use-case.
-     * Тому власне тут і є OperationResult
+     *
+     * Метод не залежить від джерела даних і не виконує транспортних операцій.
+     * API, CLI та Admin використовують один application use case.
      *
      * @return OperationResult<Client>
      */
-
-    /**
-     * Queue передається через DI та посилається на application-компонент `queue`.
-     */
-    public function __construct(private readonly Queue $queue){}
     public function create(string $name, string $email, string $balance, string $status): OperationResult
     {
         $client = new Client([

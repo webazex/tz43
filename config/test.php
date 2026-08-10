@@ -2,6 +2,9 @@
 
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/test_db.php';
+$queue = require __DIR__ . '/queue.php';
+$diFactory = require __DIR__ . '/di.php';
+$di = $diFactory($params);
 
 /**
  * Application configuration shared by all test types
@@ -9,6 +12,13 @@ $db = require __DIR__ . '/test_db.php';
 return [
     'id' => 'basic-tests',
     'basePath' => dirname(__DIR__),
+    'container' => [
+        /**
+         * Функціональні тести використовують ті самі DI-контракти,
+         * що й основний web-застосунок.
+         */
+        'singletons' => $di,
+    ],
     'bootstrap' => [
         \app\tests\Support\MailerBootstrap::class,
     ],
@@ -19,6 +29,11 @@ return [
     'language' => 'en-US',
     'components' => [
         'db' => $db,
+        /**
+         * DB Queue працює з тестовою БД через компонент `db`.
+         * Це дозволить перевіряти атомарність top-up та постановки Job.
+         */
+        'queue' => $queue,
         'mailer' => [
             'class' => \yii\symfonymailer\Mailer::class,
             'messageClass' => \yii\symfonymailer\Message::class,
