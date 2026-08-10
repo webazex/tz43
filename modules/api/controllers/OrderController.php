@@ -179,6 +179,29 @@ final class OrderController extends ApiController
     }
 
     /**
+     * Скасовує замовлення, якщо воно все ще має статус pending.
+     *
+     * Request body не потрібний: ID надходить із маршруту, а допустимість
+     * переходу статусу перевіряється всередині OrderService.
+     */
+    public function actionCancel(int $id): OperationResponse
+    {
+        $result = $this->orderService->cancel($id);
+
+        if ($result->isFailure()) {
+            $error = $result->error();
+
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        return OperationResponse::success(
+            new OrderResource($result->value())
+        );
+    }
+
+    /**
      * Перевіряє input і запускає application use case.
      *
      * @param array<string, mixed> $data
@@ -261,28 +284,5 @@ final class OrderController extends ApiController
 
             default => self::HTTP_INTERNAL_SERVER_ERROR,
         };
-    }
-
-    /**
-     * Скасовує замовлення, якщо воно все ще має статус pending.
-     *
-     * Request body не потрібний: ID надходить із маршруту, а допустимість
-     * переходу статусу перевіряється всередині OrderService.
-     */
-    public function actionCancel(int $id): OperationResponse
-    {
-        $result = $this->orderService->cancel($id);
-
-        if ($result->isFailure()) {
-            $error = $result->error();
-
-            $this->response->statusCode = $this->resolveFailureStatusCode($error);
-
-            return OperationResponse::failure($error);
-        }
-
-        return OperationResponse::success(
-            new OrderResource($result->value())
-        );
     }
 }

@@ -13,9 +13,9 @@ use app\models\entities\enums\OrderStatus;
 use app\models\valueObjects\Money;
 use InvalidArgumentException;
 use OverflowException;
+use RuntimeException;
 use Throwable;
 use Yii;
-use RuntimeException;
 
 /**
  * Application service операцій із замовленнями.
