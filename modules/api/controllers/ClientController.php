@@ -6,26 +6,34 @@ namespace app\modules\api\controllers;
 
 use app\contracts\results\OperationError;
 use app\contracts\results\OperationResult;
+use app\contracts\results\TopUpResult;
 use app\models\entities\Client;
 use app\models\forms\client\CreateClientForm;
+use app\models\forms\client\TopUpClientForm;
 use app\modules\api\security\ApiTokenAuthenticator;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
-use app\contracts\results\TopUpResult;
-use app\models\forms\client\TopUpClientForm;
 
 
 final class ClientController extends ApiController
 {
+    /**
+     * HTTP-статуси, які повертають actions контролера.
+     */
     private const HTTP_CREATED = 201;
+    private const HTTP_ACCEPTED = 202;
+    private const HTTP_NOT_FOUND = 404;
     private const HTTP_CONFLICT = 409;
     private const HTTP_UNPROCESSABLE_ENTITY = 422;
     private const HTTP_INTERNAL_SERVER_ERROR = 500;
 
-    private const HTTP_ACCEPTED = 202;
-    private const HTTP_NOT_FOUND = 404;
-
+    /**
+     * Налаштування пагінації списку клієнтів.
+     *
+     * Значення залишаються локальними для ClientController,
+     * оскільки базовий ApiController не керує параметрами списків.
+     */
     private const DEFAULT_PAGE = 1;
     private const DEFAULT_PER_PAGE = 20;
     private const MAX_PER_PAGE = 100;
@@ -194,17 +202,13 @@ final class ClientController extends ApiController
             OperationError::CODE_VALIDATION_FAILED,
             ClientService::ERROR_CREATE_FAILED,
             ClientService::ERROR_TOP_UP_INVALID_AMOUNT,
-            ClientService::ERROR_BALANCE_LIMIT_EXCEEDED =>
-            self::HTTP_UNPROCESSABLE_ENTITY,
+            ClientService::ERROR_BALANCE_LIMIT_EXCEEDED => self::HTTP_UNPROCESSABLE_ENTITY,
 
-            ClientService::ERROR_NOT_FOUND =>
-            self::HTTP_NOT_FOUND,
+            ClientService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
 
-            ClientService::ERROR_DATA_CONFLICT =>
-            self::HTTP_CONFLICT,
+            ClientService::ERROR_DATA_CONFLICT => self::HTTP_CONFLICT,
 
-            ClientService::ERROR_TOP_UP_FAILED =>
-            self::HTTP_INTERNAL_SERVER_ERROR,
+            ClientService::ERROR_TOP_UP_FAILED => self::HTTP_INTERNAL_SERVER_ERROR,
 
             default => self::HTTP_INTERNAL_SERVER_ERROR,
         };
@@ -236,11 +240,7 @@ final class ClientController extends ApiController
      */
     public function actionTopUp(int $id): OperationResponse
     {
-        $result = $this->executeTopUp(
-            $id,
-            $this->request->bodyParams,
-        );
-
+        $result = $this->executeTopUp($id, $this->request->bodyParams);
         return $this->buildTopUpResponse($result);
     }
 
