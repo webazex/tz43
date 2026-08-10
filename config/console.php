@@ -1,7 +1,7 @@
 <?php
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
-
+$queue = require __DIR__ . '/queue.php';
 $diFactory = require __DIR__ . '/di.php';
 $di = $diFactory($params);
 
@@ -28,15 +28,23 @@ $config = [
             ],
         ],
         'db' => $db,
+        'queue' => $queue,
     ],
     'params' => $params,
-    /*
     'controllerMap' => [
-        'fixture' => [ // Fixture generation command line.
-            'class' => 'yii\faker\FixtureController',
+        /**
+         * Звичайні міграції застосунку з @app/migrations залишаються
+         * увімкненими через стандартний migrationPath контролера.
+         * Додатковий namespace підключає офіційні міграції DB-драйвера
+         * yii2-queue, тому окремо дублювати структуру таблиці queue не треба.
+         */
+        'migrate' => [
+            'class' => \yii\console\controllers\MigrateController::class,
+            'migrationNamespaces' => [
+                'yii\queue\db\migrations',
+            ],
         ],
     ],
-    */
     'container' => [
         'singletons' => $di,
     ],

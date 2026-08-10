@@ -6,7 +6,7 @@ use yii\web\JsonParser;
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
 $rules = is_file(__DIR__ . '/rules.php') ? require __DIR__ . '/rules.php' : [];
-
+$queue = require __DIR__ . '/queue.php';
 $diFactory = require __DIR__ . '/di.php';
 $di = $diFactory($params);
 
@@ -50,6 +50,7 @@ $config = [
             ],
         ],
         'db' => $db,
+        'queue' => $queue,
         'urlManager' => [
             'enablePrettyUrl' => true,
             'showScriptName' => false,
