@@ -5,6 +5,7 @@ declare(strict_types=1);
 use app\models\entities\User;
 use app\modules\api\Module as ApiModule;
 use app\tests\Support\MailerBootstrap;
+use yii\caching\FileCache;
 use yii\symfonymailer\Mailer;
 use yii\symfonymailer\Message;
 use yii\web\JsonParser;
@@ -24,7 +25,9 @@ $di = $diFactory($params);
  *
  * Тестове застосування використовує ті самі API-модуль, маршрути,
  * DI-контракти та DB Queue, що й основне web-застосування.
- * Відмінності обмежені тестовою БД, файловою поштою та вимкненим CSRF.
+ *
+ * Відмінності обмежені тестовою БД, файловою поштою
+ * та окремими налаштуваннями тестового середовища.
  */
 return [
     'id' => 'basic-tests',
@@ -48,9 +51,10 @@ return [
     ],
 
     /**
-     * API-модуль обов’язково реєструється у тестовому застосуванні.
-     * Без цього route api/order/cancel та інші API routes
-     * не можуть бути розв’язані під час functional-тестів.
+     * API-модуль обов'язково реєструється у тестовому застосунку.
+     *
+     * Завдяки цьому functional-тести можуть проходити через реальні
+     * REST routes, controllers та transport layer застосунку.
      */
     'modules' => [
         'api' => [
@@ -69,11 +73,22 @@ return [
         /**
          * DB Queue використовує ту саму тестову БД.
          *
-         * Це дозволяє перевіряти атомарність:
+         * Це дозволяє перевіряти атомарність сценарію:
          *
-         * top-up → queued → Queue Job record.
+         * top-up → client balance → processing lifecycle → Queue Job.
          */
         'queue' => $queue,
+
+        /**
+         * Стандартний файловий кеш Yii потрібен інфраструктурним
+         * компонентам web-застосунку, зокрема URL Manager.
+         *
+         * Це НЕ business-кеш балансу клієнта і не реалізація
+         * бонусного Redis-завдання з ТЗ.
+         */
+        'cache' => [
+            'class' => FileCache::class,
+        ],
 
         'mailer' => [
             'class' => Mailer::class,
@@ -94,15 +109,17 @@ return [
             'cookieValidationKey' => 'test',
 
             /**
-             * CSRF вимкнений тільки в тестовому середовищі.
-             * Production policy залишається в ApiController:
-             * session → CSRF, Bearer token → без CSRF.
+             * CSRF вимкнений тільки в поточному functional-test environment.
+             *
+             * Через це цей suite не перевіряє production CSRF policy.
+             * Якщо така перевірка знадобиться, її слід реалізувати
+             * окремим security-сценарієм, а не змішувати з business-tests.
              */
             'enableCsrfValidation' => false,
 
             /**
-             * Functional-тести повинні перевіряти той самий JSON input,
-             * який приймають реальні API endpoints.
+             * Functional-тести повинні приймати той самий JSON input,
+             * який обробляють реальні REST endpoints.
              */
             'parsers' => [
                 'application/json' => JsonParser::class,
@@ -110,8 +127,10 @@ return [
         ],
 
         /**
-         * Підключаємо справжні API URL з config/rules.php.
-         * Тести перевірятимуть зовнішній endpoint, а не прямий виклик action.
+         * Використовуємо справжні API URL з config/rules.php.
+         *
+         * Тест має перевіряти transport contract endpoint-а,
+         * а не викликати controller action напряму.
          */
         'urlManager' => [
             'enablePrettyUrl' => true,
