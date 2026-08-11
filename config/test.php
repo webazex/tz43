@@ -10,6 +10,8 @@ use yii\symfonymailer\Mailer;
 use yii\symfonymailer\Message;
 use yii\web\JsonParser;
 
+$params = require __DIR__ . '/params.php';
+
 /**
  * Functional REST-тести використовують окремий детермінований Bearer token.
  *
@@ -32,7 +34,6 @@ $rules = is_file(__DIR__ . '/rules.php')
 
 $diFactory = require __DIR__ . '/di.php';
 $di = $diFactory($params);
-$params = require __DIR__ . '/params.php';
 
 /**
  * Конфігурація web-застосунку для functional-тестів.
