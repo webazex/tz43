@@ -1,15 +1,20 @@
 ---
-# Codeception Test Suite Configuration
+# Конфігурація Functional suite.
+#
+# Yii2 module запускає web-застосунок усередині процесу Codeception,
+# тому functional-тести проходять через реальні routes, controllers,
+# request/response components та test database без окремого web-сервера.
 
-# suite for functional (integration) tests.
-# emulate web requests and make application process them.
-# (tip: better to use with frameworks).
-
-# RUN `build` COMMAND AFTER ADDING/REMOVING MODULES.
-#basic/web/index.php
 actor: FunctionalTester
+
 modules:
-    enabled:
-      - Filesystem
-      - Yii2
-      - Asserts
+  enabled:
+    - Filesystem
+    - Yii2
+    - Asserts
+
+    # Власний transport-helper для REST functional-тестів.
+    #
+    # Додає FunctionalTester::sendJsonPostRequest(), який дозволяє
+    # надсилати raw application/json body через Yii2 test application.
+    - \app\tests\Support\Helper\Functional
