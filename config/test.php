@@ -140,4 +140,19 @@ return [
     ],
 
     'params' => $params,
+    /**
+     * Functional REST-тести використовують окремий детермінований Bearer token.
+     *
+     * Список замінюється повністю, а не доповнюється:
+     * test environment не повинен залежати від API-токенів,
+     * які розробник може мати у config/local/params.php.
+     *
+     * Значення не є production secret і використовується виключно
+     * всередині ізольованого test application.
+     */
+    $params['api']['accessTokens'] = [
+        'functional-test-token',
+    ]
 ];
+$db = require __DIR__ . '/test_db.php';
+$queue = require __DIR__ . '/queue.php';
