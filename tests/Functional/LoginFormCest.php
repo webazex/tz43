@@ -5,44 +5,69 @@ declare(strict_types=1);
 namespace app\tests\Functional;
 
 use app\models\entities\User;
+use app\tests\Support\Fixtures\UserFixture;
 use app\tests\Support\FunctionalTester;
 use RuntimeException;
-use Yii;
 
 /**
  * Functional-тести авторизації адміністративного користувача.
  *
- * Кожен тест працює з реальним User ActiveRecord у тестовій БД.
- * Тести не залежать від локального адміністратора, фіксованого ID
- * або попереднього запуску init/setup.
+ * UserFixture створює відомий стан таблиці user перед кожним тестом.
  *
- * Yii2 module виконує functional-тести всередині test transaction,
- * тому створений користувач не повинен залишатися в БД після тесту.
+ * Сценарії не залежать:
+ * - від адміністратора, створеного через init/setup;
+ * - від локальних даних розробника;
+ * - від порядку запуску тестів;
+ * - від конкретного AUTO_INCREMENT ID.
  */
 final class LoginFormCest
 {
-    private const USERNAME = 'test_admin';
-    private const EMAIL = 'test-admin@example.com';
-    private const PASSWORD = 'TestPassword123!';
-
-    private User $user;
+    private User $admin;
 
     /**
-     * Створює незалежний тестовий контекст перед кожним сценарієм.
+     * Оголошує fixture, яку Yii2 Codeception module завантажує
+     * до виконання конкретного тестового сценарію.
      *
-     * Користувач створюється через ту саму ActiveRecord-сутність
-     * та ті самі password/auth-key methods, які використовує
-     * штатний процес створення адміністратора.
+     * @return array<string, class-string>
+     */
+    public function _fixtures(): array
+    {
+        return [
+            'users' => UserFixture::class,
+        ];
+    }
+
+    /**
+     * Готує загальну передумову login-сценаріїв.
+     *
+     * Fixture вже завантажена до моменту виконання _before(),
+     * тому тут ми лише отримуємо створену User entity за alias.
      */
     public function _before(FunctionalTester $I): void
     {
-        $this->user = $this->createUser();
+        $admin = $I->grabFixture(
+            'users',
+            UserFixture::ACTIVE_ADMIN_ALIAS
+        );
+
+        /**
+         * grabFixture() має mixed return type на рівні Codeception API.
+         * Явна runtime-перевірка не дозволяє тесту мовчки працювати
+         * з некоректно налаштованою fixture.
+         */
+        if (!$admin instanceof User) {
+            throw new RuntimeException(
+                'UserFixture не повернула очікувану User entity.'
+            );
+        }
+
+        $this->admin = $admin;
 
         $I->amOnRoute('site/login');
     }
 
     /**
-     * Перевіряє, що сторінка входу доступна неавторизованому користувачу.
+     * Перевіряє доступність сторінки авторизації.
      */
     public function openLoginPage(FunctionalTester $I): void
     {
@@ -50,35 +75,41 @@ final class LoginFormCest
     }
 
     /**
-     * Перевіряє внутрішню авторизацію Yii за реальним primary key.
+     * Перевіряє внутрішню Yii-авторизацію за реальним primary key.
      *
-     * На відміну від стандартного Yii Basic template, тест не очікує,
-     * що в БД наперед існує користувач з ID = 100.
+     * Критична відмінність від Yii Basic scaffold:
+     * тест використовує ID, фактично створений fixture,
+     * а не припускає існування користувача з ID = 100.
      */
     public function internalLoginById(FunctionalTester $I): void
     {
-        $I->amLoggedInAs($this->user->getId());
+        $I->amLoggedInAs($this->admin->getId());
         $I->amOnPage('/');
 
-        $I->see('Logout (' . self::USERNAME . ')');
+        $I->see(
+            'Logout (' . UserFixture::ACTIVE_ADMIN_USERNAME . ')'
+        );
     }
 
     /**
-     * Перевіряє внутрішню авторизацію Yii через IdentityInterface.
-     *
-     * Тут передається реальна User entity, яку тест створив сам,
-     * тому сценарій не залежить від глобального test fixture.
+     * Перевіряє авторизацію через готову IdentityInterface entity.
      */
     public function internalLoginByInstance(FunctionalTester $I): void
     {
-        $I->amLoggedInAs($this->user);
+        $I->amLoggedInAs($this->admin);
         $I->amOnPage('/');
 
-        $I->see('Logout (' . self::USERNAME . ')');
+        $I->see(
+            'Logout (' . UserFixture::ACTIVE_ADMIN_USERNAME . ')'
+        );
     }
 
     /**
-     * Перевіряє required-validation форми входу.
+     * Перевіряє required validation login-форми.
+     *
+     * Fixture у цьому сценарії безпосередньо не потрібна,
+     * але спільний baseline класу залишається однаковим
+     * для всіх login-сценаріїв.
      */
     public function loginWithEmptyCredentials(FunctionalTester $I): void
     {
@@ -90,16 +121,16 @@ final class LoginFormCest
     }
 
     /**
-     * Перевіряє відмову в авторизації при неправильному паролі.
+     * Перевіряє саме неправильний пароль для існуючого користувача.
      *
-     * Важливо, що користувач із таким username реально існує.
-     * Таким чином тест перевіряє саме неправильний пароль,
-     * а не випадок відсутнього користувача.
+     * Це важливіше за старий scaffold-тест:
+     * username гарантовано існує в БД, тому негативний результат
+     * спричинений password validation, а не відсутністю User.
      */
     public function loginWithWrongCredentials(FunctionalTester $I): void
     {
         $I->submitForm('#login-form', [
-            'LoginForm[username]' => self::USERNAME,
+            'LoginForm[username]' => UserFixture::ACTIVE_ADMIN_USERNAME,
             'LoginForm[password]' => 'WrongPassword123!',
         ]);
 
@@ -108,56 +139,27 @@ final class LoginFormCest
     }
 
     /**
-     * Перевіряє повний login flow через web-форму.
+     * Перевіряє повний успішний login flow через web-форму.
      *
-     * Сценарій проходить через:
+     * Сценарій проходить через реальні:
      *
      * HTTP form
      * → SiteController
      * → LoginForm
      * → User::findByUsername()
-     * → password hash validation
+     * → Yii Security password validation
      * → Yii session authentication.
      */
     public function loginSuccessfully(FunctionalTester $I): void
     {
         $I->submitForm('#login-form', [
-            'LoginForm[username]' => self::USERNAME,
-            'LoginForm[password]' => self::PASSWORD,
+            'LoginForm[username]' => UserFixture::ACTIVE_ADMIN_USERNAME,
+            'LoginForm[password]' => UserFixture::ACTIVE_ADMIN_PASSWORD,
         ]);
 
-        $I->see('Logout (' . self::USERNAME . ')');
+        $I->see(
+            'Logout (' . UserFixture::ACTIVE_ADMIN_USERNAME . ')'
+        );
         $I->dontSeeElement('form#login-form');
-    }
-
-    /**
-     * Створює адміністративного користувача тільки для поточного тесту.
-     *
-     * Не використовує init-command, оскільки test setup не повинен
-     * залежати від інтерактивного CLI або стану конкретного середовища.
-     *
-     * @throws RuntimeException якщо тестові передумови неможливо створити
-     */
-    private function createUser(): User
-    {
-        $user = new User([
-            'username' => self::USERNAME,
-            'email' => self::EMAIL,
-            'status' => User::STATUS_ACTIVE,
-        ]);
-
-        $security = Yii::$app->getSecurity();
-
-        $user->setPassword(self::PASSWORD, $security);
-        $user->generateAuthKey($security);
-
-        if (!$user->save()) {
-            throw new RuntimeException(
-                'Не вдалося створити test User: '
-                . json_encode($user->getErrors(), JSON_UNESCAPED_UNICODE)
-            );
-        }
-
-        return $user;
     }
 }
