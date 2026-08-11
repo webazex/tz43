@@ -10,7 +10,20 @@ use yii\symfonymailer\Mailer;
 use yii\symfonymailer\Message;
 use yii\web\JsonParser;
 
-$params = require __DIR__ . '/params.php';
+/**
+ * Functional REST-тести використовують окремий детермінований Bearer token.
+ *
+ * Список замінюється повністю, а не доповнюється:
+ * test environment не повинен залежати від API-токенів,
+ * які розробник може мати у config/local/params.php.
+ *
+ * Значення не є production secret і використовується виключно
+ * всередині ізольованого test application.
+ */
+$params['api']['accessTokens'] = [
+    'functional-test-token',
+];
+
 $db = require __DIR__ . '/test_db.php';
 $queue = require __DIR__ . '/queue.php';
 $rules = is_file(__DIR__ . '/rules.php')
@@ -138,21 +151,5 @@ return [
             'rules' => $rules,
         ],
     ],
-
     'params' => $params,
-    /**
-     * Functional REST-тести використовують окремий детермінований Bearer token.
-     *
-     * Список замінюється повністю, а не доповнюється:
-     * test environment не повинен залежати від API-токенів,
-     * які розробник може мати у config/local/params.php.
-     *
-     * Значення не є production secret і використовується виключно
-     * всередині ізольованого test application.
-     */
-    $params['api']['accessTokens'] = [
-        'functional-test-token',
-    ]
 ];
-$db = require __DIR__ . '/test_db.php';
-$queue = require __DIR__ . '/queue.php';
