@@ -5,21 +5,46 @@ declare(strict_types=1);
 namespace app\tests\Unit\Models;
 
 use app\models\forms\auth\LoginForm;
+use app\tests\Support\Fixtures\UserFixture;
 use Yii;
 use yii\base\Security;
 
+/**
+ * Перевіряє application contract LoginForm.
+ *
+ * Валідний користувач надається через UserFixture, тому позитивні
+ * та негативні password-сценарії працюють з реальною DB-backed
+ * User entity, а не зі старими demo/demo даними Yii Basic template.
+ */
 final class LoginFormTest extends \Codeception\Test\Unit
 {
-    private $_model;
+    /**
+     * Завантажує адміністративного користувача до test database.
+     *
+     * @return array<string, class-string>
+     */
+    public function _fixtures(): array
+    {
+        return [
+            'users' => UserFixture::class,
+        ];
+    }
 
-    protected function _after()
+    /**
+     * Гарантує, що session state одного тесту не впливає
+     * на наступний тест цього класу.
+     */
+    protected function _after(): void
     {
         Yii::$app->user->logout();
     }
 
-    public function testLoginNoUser()
+    /**
+     * Невідомий username не повинен створювати Yii session.
+     */
+    public function testLoginNoUser(): void
     {
-        $this->_model = new LoginForm(
+        $model = new LoginForm(
             new Security(),
             [
                 'username' => 'not_existing_username',
@@ -27,37 +52,47 @@ final class LoginFormTest extends \Codeception\Test\Unit
             ],
         );
 
-        verify($this->_model->login())->false();
-        verify(Yii::$app->user->isGuest)->true();
+        self::assertFalse($model->login());
+        self::assertTrue(Yii::$app->user->isGuest);
     }
 
-    public function testLoginWrongPassword()
+    /**
+     * Перевіряє саме неправильний пароль існуючого користувача.
+     *
+     * Fixture гарантує існування username, тому failure не може
+     * бути випадково спричинений відсутністю User у test database.
+     */
+    public function testLoginWrongPassword(): void
     {
-        $this->_model = new LoginForm(
+        $model = new LoginForm(
             new Security(),
             [
-                'username' => 'demo',
-                'password' => 'wrong_password',
+                'username' => UserFixture::ACTIVE_ADMIN_USERNAME,
+                'password' => 'WrongPassword123!',
             ],
         );
 
-        verify($this->_model->login())->false();
-        verify(Yii::$app->user->isGuest)->true();
-        verify($this->_model->errors)->arrayHasKey('password');
+        self::assertFalse($model->login());
+        self::assertTrue(Yii::$app->user->isGuest);
+        self::assertArrayHasKey('password', $model->errors);
     }
 
-    public function testLoginCorrect()
+    /**
+     * Перевіряє успішну авторизацію з реальним password_hash
+     * fixture-користувача.
+     */
+    public function testLoginCorrect(): void
     {
-        $this->_model = new LoginForm(
+        $model = new LoginForm(
             new Security(),
             [
-                'username' => 'demo',
-                'password' => 'demo',
+                'username' => UserFixture::ACTIVE_ADMIN_USERNAME,
+                'password' => UserFixture::ACTIVE_ADMIN_PASSWORD,
             ],
         );
 
-        verify($this->_model->login())->true();
-        verify(Yii::$app->user->isGuest)->false();
-        verify($this->_model->errors)->arrayHasNotKey('password');
+        self::assertTrue($model->login());
+        self::assertFalse(Yii::$app->user->isGuest);
+        self::assertArrayNotHasKey('password', $model->errors);
     }
 }
