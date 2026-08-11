@@ -32,6 +32,7 @@ $rules = is_file(__DIR__ . '/rules.php')
 
 $diFactory = require __DIR__ . '/di.php';
 $di = $diFactory($params);
+$params = require __DIR__ . '/params.php';
 
 /**
  * Конфігурація web-застосунку для functional-тестів.
