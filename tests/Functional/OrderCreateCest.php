@@ -279,4 +279,109 @@ final class OrderCreateCest
             'balance' => '39.99',
         ]);
     }
+
+    /**
+     * Перевіряє заборону створення нового замовлення
+     * для клієнта зі статусом blocked.
+     *
+     * Business invariant:
+     *
+     * client.status = blocked
+     * → створення нового Order заборонене
+     * → HTTP 409 CLIENT_BLOCKED
+     * → Order не створюється
+     * → balance не змінюється.
+     *
+     * Достатній баланс задається навмисно:
+     * тест повинен довести, що саме статус клієнта блокує операцію,
+     * а не нестача коштів.
+     *
+     * @throws JsonException
+     */
+    public function rejectOrderCreationForBlockedClient(FunctionalTester $I): void
+    {
+        /**
+         * GIVEN
+         *
+         * Заблокований клієнт має достатньо коштів для оплати.
+         * Без business-перевірки blocked такий Order став би paid,
+         * тому сценарій чутливий до втрати відповідного guard.
+         */
+        $clientId = (int) $I->haveRecord(Client::class, [
+            'name' => 'Blocked Client',
+            'email' => 'blocked-order@example.test',
+            'balance' => '100.00',
+            'status' => Client::STATUS_BLOCKED,
+            'pending_processing_status' => ClientPendingProcessingStatus::Idle->value,
+        ]);
+
+        /**
+         * WHEN
+         *
+         * Виконуємо звичайний валідний POST /orders.
+         * Єдиною причиною відмови повинен бути статус blocked.
+         */
+        $I->sendJsonPostRequest('/orders', [
+            'client_id' => $clientId,
+            'amount' => '40.00',
+            'description' => 'Blocked client order',
+        ]);
+
+        /**
+         * THEN — HTTP contract.
+         *
+         * Business conflict представляється як 409 Conflict.
+         */
+        $I->seeResponseCodeIs(409);
+
+        /**
+         * THEN — failure response contract.
+         *
+         * Перевіряємо application error code, а не текст повідомлення:
+         * саме code є стабільною частиною зовнішнього контракту.
+         */
+        $response = json_decode(
+            $I->grabPageSource(),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        $I->assertIsArray($response);
+        $I->assertFalse($response['success']);
+        $I->assertNull($response['data']);
+        $I->assertIsArray($response['error']);
+
+        $I->assertSame(
+            'CLIENT_BLOCKED',
+            $response['error']['code']
+        );
+
+        $I->assertSame(
+            $clientId,
+            $response['error']['details']['id']
+        );
+
+        /**
+         * THEN — persistence contract Order.
+         *
+         * Business failure не повинен залишати частково
+         * виконану операцію в database.
+         */
+        $I->dontSeeRecord(Order::class, [
+            'client_id' => $clientId,
+            'description' => 'Blocked client order',
+        ]);
+
+        /**
+         * THEN — persistence contract Client.
+         *
+         * Відхилений запит не має права змінити баланс.
+         */
+        $I->seeRecord(Client::class, [
+            'id' => $clientId,
+            'balance' => '100.00',
+            'status' => Client::STATUS_BLOCKED,
+        ]);
+    }
 }
