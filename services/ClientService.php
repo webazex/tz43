@@ -122,6 +122,76 @@ final class ClientService
     }
 
     /**
+     * Шукає клієнтів за одним явно дозволеним полем.
+     *
+     * Підтримуються два режими порівняння:
+     *
+     * - $like = false — точне порівняння значення;
+     * - $like = true  — частковий збіг через LIKE.
+     *
+     * Метод повторно перевіряє ім'я поля незалежно від Form Model.
+     * Це важливо, оскільки ClientService може бути викликаний не лише
+     * через HTTP-контролер, а й з іншого application entry point.
+     *
+     * @return array{items: list<Client>, totalCount: int}
+     */
+    public function search(
+        int $page,
+        int $perPage,
+        string $field,
+        string $value,
+        bool $like
+    ): array {
+        /**
+         * Не використовуємо $field безпосередньо як довільне ім'я
+         * SQL-колонки. Service має власний allowlist незалежно
+         * від transport validation.
+         */
+        $column = match ($field) {
+            'name' => 'name',
+            'email' => 'email',
+            default => throw new InvalidArgumentException(
+                'Непідтримуване поле пошуку клієнта.'
+            ),
+        };
+
+        $query = Client::find()
+            ->orderBy(['id' => SORT_ASC]);
+
+        if ($like) {
+            /**
+             * Yii самостійно екранує значення та формує
+             * substring-пошук виду LIKE '%value%'.
+             */
+            $query->andWhere(['like', $column, $value]);
+        } else {
+            /**
+             * Точний режим означає відсутність wildcard.
+             *
+             * Регістр при цьому визначається collation таблиці БД,
+             * а не application-кодом.
+             */
+            $query->andWhere([$column => $value]);
+        }
+
+        /**
+         * totalCount рахуємо після застосування search condition,
+         * щоб pagination описувала саме результат пошуку.
+         */
+        $totalCount = (int) (clone $query)->count();
+
+        $items = $query
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
+            ->all();
+
+        return [
+            'items' => $items,
+            'totalCount' => $totalCount,
+        ];
+    }
+
+    /**
      * Поповнює баланс клієнта та ставить асинхронну обробку
      * pending-замовлень у DB Queue.
      *
