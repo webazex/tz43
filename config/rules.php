@@ -20,6 +20,7 @@ return [
     'GET clients/<id:\d+>' => 'api/client/view',
     'GET clients' => 'api/client/index',
     'POST clients' => 'api/client/create',
+    'GET clients/search' => 'api/client/search',
 
     // API: orders
     'POST orders/<id:\d+>/cancel' => 'api/order/cancel',
