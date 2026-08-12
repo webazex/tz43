@@ -384,4 +384,104 @@ final class OrderCreateCest
             'status' => Client::STATUS_BLOCKED,
         ]);
     }
+
+    /**
+     * Перевіряє створення замовлення для client_id,
+     * якого не існує в database.
+     *
+     * Business invariant:
+     *
+     * client не існує
+     * → Order створити неможливо
+     * → HTTP 404 CLIENT_NOT_FOUND
+     * → жодного persistence side effect.
+     *
+     * @throws JsonException
+     */
+    public function rejectOrderCreationForUnknownClient(FunctionalTester $I): void
+    {
+        /**
+         * GIVEN
+         *
+         * Не використовуємо фіксований умовний ID на кшталт 999999:
+         * з часом такий запис теоретично може з'явитися у test database.
+         *
+         * MAX(id) + 1 гарантовано не існує на момент підготовки
+         * цього послідовного functional scenario.
+         */
+        $missingClientId = ((int) Client::find()->max('id')) + 1;
+
+        /**
+         * Явно фіксуємо precondition тесту.
+         *
+         * Якщо вона коли-небудь перестане виконуватися,
+         * тест повинен повідомити саме про некоректний setup,
+         * а не давати оманливий результат business-перевірки.
+         */
+        $I->dontSeeRecord(Client::class, [
+            'id' => $missingClientId,
+        ]);
+
+        /**
+         * WHEN
+         *
+         * Сам request повністю валідний за форматом.
+         * Єдина причина відмови — відсутність Client у database.
+         */
+        $I->sendJsonPostRequest('/orders', [
+            'client_id' => $missingClientId,
+            'amount' => '40.00',
+            'description' => 'Unknown client order',
+        ]);
+
+        /**
+         * THEN — HTTP contract.
+         *
+         * Відсутня пов'язана business-сутність представляється
+         * через 404 Not Found.
+         */
+        $I->seeResponseCodeIs(404);
+
+        /**
+         * THEN — failure response contract.
+         */
+        $response = json_decode(
+            $I->grabPageSource(),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        $I->assertIsArray($response);
+        $I->assertFalse($response['success']);
+        $I->assertNull($response['data']);
+        $I->assertIsArray($response['error']);
+
+        /**
+         * Використовуємо literal зовнішнього API-контракту,
+         * а не OrderService::ERROR_CLIENT_NOT_FOUND.
+         *
+         * Інакше зміна значення production-константи автоматично
+         * змінила б і очікування тесту, приховавши breaking change API.
+         */
+        $I->assertSame(
+            'CLIENT_NOT_FOUND',
+            $response['error']['code']
+        );
+
+        $I->assertSame(
+            $missingClientId,
+            $response['error']['details']['id']
+        );
+
+        /**
+         * THEN — persistence contract.
+         *
+         * Коректна failure-відповідь недостатня сама по собі:
+         * додатково доводимо, що Order фактично не був записаний.
+         */
+        $I->dontSeeRecord(Order::class, [
+            'client_id' => $missingClientId,
+        ]);
+    }
 }
