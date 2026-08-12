@@ -85,6 +85,8 @@ final class Money
     public function isEnoughFor(self $money): bool
     {
         return $this->cents >= $money->cents;
+        //return $this->cents > $money->cents;// розкоментувати для функціонального тесту Orders
+        // на неправильне значення грошей
     }
 
     /**
