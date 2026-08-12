@@ -84,8 +84,7 @@ final class Money
      */
     public function isEnoughFor(self $money): bool
     {
-        //return $this->cents >= $money->cents;
-        return ($this->cents + 1) >= $money->cents;
+        return $this->cents >= $money->cents;
     }
 
     /**
