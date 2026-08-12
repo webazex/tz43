@@ -101,13 +101,52 @@ final class ClientService
     /**
      * Повертає сторінку списку клієнтів.
      *
+     * Опціональний параметр search виконує substring-пошук
+     * одночасно за ім'ям та email клієнта.
+     *
+     * Порожній search не змінює поведінку списку:
+     * повертається звичайна сторінка без фільтрації.
+     *
+     * Фільтр застосовується ДО підрахунку totalCount,
+     * тому pagination metadata завжди описує саме
+     * відфільтрований набір записів.
+     *
      * @return array{items: list<Client>, totalCount: int}
      */
-    public function getList(int $page, int $perPage): array
+    public function getList(int $page, int $perPage, ?string $search = null): array
     {
+        /**
+         * Нормалізація виконується всередині application service,
+         * щоб поведінка пошуку не залежала від конкретного transport layer.
+         *
+         * API, CLI або майбутня admin-панель отримають однакову семантику:
+         * пробіли по краях не є частиною пошукового значення.
+         */
+        $search = $search === null
+            ? null
+            : trim($search);
+
+        /**
+         * Порожній рядок після trim прирівнюється до відсутнього фільтра.
+         */
+        if ($search === '') {
+            $search = null;
+        }
+
         $query = Client::find()
+            ->andFilterWhere([
+                'or',
+                ['like', 'name', $search],
+                ['like', 'email', $search],
+            ])
             ->orderBy(['id' => SORT_ASC]);
 
+        /**
+         * COUNT виконується вже після застосування search-фільтра.
+         * Це критично для правильної pagination:
+         * totalCount має містити кількість знайдених клієнтів,
+         * а не загальну кількість записів у таблиці.
+         */
         $totalCount = (int) (clone $query)->count();
 
         $items = $query
