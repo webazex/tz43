@@ -14,6 +14,7 @@ use app\modules\api\security\ApiTokenAuthenticator;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
+use app\models\forms\client\SearchClientsForm;
 
 
 final class ClientController extends ApiController
@@ -60,6 +61,7 @@ final class ClientController extends ApiController
     {
         return [
             'index' => ['GET'],
+            'search' => ['GET'],
             'create' => ['POST'],
             'view' => ['GET'],
             'top-up' => ['POST'],
@@ -84,24 +86,107 @@ final class ClientController extends ApiController
             ),
         );
 
-        /**
-         * Пошуковий рядок є опціональним query parameter.
-         *
-         * Application service самостійно виконує trim та визначає
-         * поведінку порожнього значення, тому Controller лише передає
-         * transport input у відповідний use case.
-         *
-         * Масив тут не приймаємо: конструкція на кшталт
-         * ?search[]=value не є валідним форматом search-параметра
-         * і не повинна спричиняти TypeError у Service Layer.
-         */
-        $search = $this->request->get('search');
+        $result = $this->clientService->getList($page, $perPage);
+        $totalCount = $result['totalCount'];
 
-        if (!is_string($search)) {
-            $search = null;
+        $pageCount = $totalCount === 0
+            ? 0
+            : (int) ceil($totalCount / $perPage);
+
+        $items = array_map(
+            static fn (Client $client): ClientResource => new ClientResource($client),
+            $result['items'],
+        );
+
+        $this->setPaginationHeaders(
+            $page,
+            $perPage,
+            $pageCount,
+            $totalCount,
+        );
+
+        return OperationResponse::success([
+            'items' => $items,
+            'pagination' => [
+                'page' => $page,
+                'perPage' => $perPage,
+                'pageCount' => $pageCount,
+                'totalCount' => $totalCount,
+            ],
+        ]);
+    }
+
+    /**
+     * Виконує пошук клієнтів за явно вказаним полем.
+     *
+     * Endpoint приймає:
+     *
+     * field    — поле пошуку: name або email;
+     * value    — значення пошуку;
+     * like     — 0 для точного або 1 для часткового збігу;
+     * page     — номер сторінки;
+     * per-page — кількість записів на сторінці.
+     *
+     * Controller відповідає лише за transport input, validation
+     * та формування HTTP response. Сам SQL-пошук виконується
+     * всередині ClientService.
+     */
+    public function actionSearch(): OperationResponse
+    {
+        $form = new SearchClientsForm();
+
+        /**
+         * HTTP parameter `per-page` вручну переводимо у властивість
+         * Form Model `per_page`.
+         *
+         * Це той самий підхід, який уже використовується
+         * для ListOrdersForm.
+         */
+        $form->load(
+            [
+                'field' => $this->request->get('field'),
+                'value' => $this->request->get('value'),
+                'like' => $this->request->get('like'),
+                'page' => $this->request->get(
+                    'page',
+                    SearchClientsForm::DEFAULT_PAGE,
+                ),
+                'per_page' => $this->request->get(
+                    'per-page',
+                    SearchClientsForm::DEFAULT_PER_PAGE,
+                ),
+            ],
+            '',
+        );
+
+        /**
+         * Невалідний transport input не повинен доходити
+         * до Service Layer.
+         */
+        if (!$form->validate()) {
+            $this->response->statusCode = self::HTTP_UNPROCESSABLE_ENTITY;
+
+            return OperationResponse::failure(
+                new OperationError(
+                    code: OperationError::CODE_VALIDATION_FAILED,
+                    details: [
+                        'fields' => $form->getErrors(),
+                    ],
+                )
+            );
         }
 
-        $result = $this->clientService->getList($page, $perPage, $search);
+        $page = $form->pageNumber();
+        $perPage = $form->pageSize();
+
+        $result = $this->clientService->search(
+            $page,
+            $perPage,
+            $form->fieldName(),
+            $form->searchValue(),
+            $form->isLike(),
+        );
+
         $totalCount = $result['totalCount'];
 
         $pageCount = $totalCount === 0
