@@ -164,4 +164,119 @@ final class OrderCreateCest
             'balance' => '0.00',
         ]);
     }
+
+    /**
+     * Перевіряє граничний випадок недостатнього балансу:
+     * клієнту бракує рівно однієї копійки для оплати замовлення.
+     *
+     * Business invariant:
+     *
+     * balance < order amount
+     * → коштів недостатньо
+     * → order.status = pending
+     * → balance не змінюється.
+     *
+     * Значення 39.99 і 40.00 вибрані навмисно.
+     * Вони перевіряють межу прийняття рішення з точністю до копійки,
+     * а не лише очевидний випадок великої нестачі коштів.
+     *
+     * @throws JsonException
+     */
+    public function createPendingOrderWhenBalanceIsInsufficient(FunctionalTester $I): void
+    {
+        /**
+         * GIVEN
+         *
+         * Клієнт має на одну копійку менше, ніж необхідно
+         * для повної оплати нового замовлення.
+         */
+        $clientId = (int) $I->haveRecord(Client::class, [
+            'name' => 'Insufficient Balance Client',
+            'email' => 'insufficient-balance@example.test',
+            'balance' => '39.99',
+            'status' => Client::STATUS_ACTIVE,
+            'pending_processing_status' => ClientPendingProcessingStatus::Idle->value,
+        ]);
+
+        /**
+         * WHEN
+         *
+         * Створюємо замовлення на 40.00 через той самий REST endpoint.
+         */
+        $I->sendJsonPostRequest('/orders', [
+            'client_id' => $clientId,
+            'amount' => '40.00',
+            'description' => 'Insufficient balance order',
+        ]);
+
+        /**
+         * THEN — HTTP contract.
+         *
+         * Недостатній баланс не є validation або transport error.
+         * Order успішно створюється, але переходить у pending,
+         * тому endpoint все одно повинен повернути 201 Created.
+         */
+        $I->seeResponseCodeIs(201);
+
+        /**
+         * THEN — business response.
+         *
+         * Повну схему success-response вже перевіряє перший сценарій.
+         * Тут перевіряємо тільки поля, які доводять правильність
+         * альтернативної business-гілки.
+         */
+        $response = json_decode(
+            $I->grabPageSource(),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        $I->assertIsArray($response);
+        $I->assertTrue($response['success']);
+        $I->assertNull($response['error']);
+        $I->assertIsArray($response['data']);
+
+        $data = $response['data'];
+
+        $I->assertSame($clientId, $data['clientId']);
+        $I->assertSame('40.00', $data['amount']);
+        $I->assertSame(
+            'Insufficient balance order',
+            $data['description']
+        );
+        $I->assertSame(
+            OrderStatus::Pending->value,
+            $data['status']
+        );
+
+        $orderId = (int) $data['id'];
+
+        $I->assertGreaterThan(0, $orderId);
+
+        /**
+         * THEN — persistence contract Order.
+         *
+         * Замовлення повинно реально зберегтися як pending,
+         * а не лише серіалізуватися з таким статусом у response.
+         */
+        $I->seeRecord(Order::class, [
+            'id' => $orderId,
+            'client_id' => $clientId,
+            'amount' => '40.00',
+            'description' => 'Insufficient balance order',
+            'status' => OrderStatus::Pending->value,
+        ]);
+
+        /**
+         * THEN — persistence contract Client.
+         *
+         * Pending-замовлення не резервує і не списує кошти.
+         * Баланс після створення повинен залишитися точно 39.99.
+         */
+        $I->seeRecord(Client::class, [
+            'id' => $clientId,
+            'balance' => '39.99',
+        ]);
+    }
 }
