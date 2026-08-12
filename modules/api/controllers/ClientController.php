@@ -101,7 +101,7 @@ final class ClientController extends ApiController
             $search = null;
         }
 
-        $result = $this->clientService->getList($page, $perPage);
+        $result = $this->clientService->getList($page, $perPage, $search);
         $totalCount = $result['totalCount'];
 
         $pageCount = $totalCount === 0
