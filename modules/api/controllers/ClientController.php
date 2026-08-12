@@ -84,6 +84,23 @@ final class ClientController extends ApiController
             ),
         );
 
+        /**
+         * Пошуковий рядок є опціональним query parameter.
+         *
+         * Application service самостійно виконує trim та визначає
+         * поведінку порожнього значення, тому Controller лише передає
+         * transport input у відповідний use case.
+         *
+         * Масив тут не приймаємо: конструкція на кшталт
+         * ?search[]=value не є валідним форматом search-параметра
+         * і не повинна спричиняти TypeError у Service Layer.
+         */
+        $search = $this->request->get('search');
+
+        if (!is_string($search)) {
+            $search = null;
+        }
+
         $result = $this->clientService->getList($page, $perPage);
         $totalCount = $result['totalCount'];
 
