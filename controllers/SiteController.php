@@ -118,7 +118,7 @@ class SiteController extends Controller
              * Якщо AccessControl зберіг returnUrl — повертаємо користувача туди.
              * Інакше dashboard стартує зі списку клієнтів.
              */
-            return $this->goBack(['site/clients']);
+            return $this->goBack(['/site/clients']);
         }
 
         /**
@@ -136,7 +136,7 @@ class SiteController extends Controller
     {
         Yii::$app->user->logout();
 
-        return $this->redirect(['site/login']);
+        return $this->redirect(['/site/login']);
     }
 
     /**
@@ -178,7 +178,7 @@ class SiteController extends Controller
      */
     public function actionDashboard(): Response
     {
-        return $this->redirect(['site/clients']);
+        return $this->redirect(['/site/clients']);
     }
 
     /**
