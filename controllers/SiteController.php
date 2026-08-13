@@ -107,7 +107,7 @@ class SiteController extends Controller
     public function actionLogin(): Response|string
     {
         if (!Yii::$app->user->isGuest) {
-            return $this->redirect(['site/clients']);
+            return $this->redirect(['/site/clients']);
         }
 
         $this->layout = 'dashboard/auth';
