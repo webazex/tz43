@@ -82,31 +82,34 @@ final class LoginFormCest
     /**
      * Перевіряє внутрішню Yii-авторизацію за реальним primary key.
      *
-     * Критична відмінність від Yii Basic scaffold:
-     * тест використовує ID, фактично створений fixture,
-     * а не припускає існування користувача з ID = 100.
+     * Тест підтверджує, що після встановлення identity через її ID
+     * користувач розпізнається dashboard як авторизований адміністратор.
      */
     public function internalLoginById(FunctionalTester $I): void
     {
         $I->amLoggedInAs($this->admin->getId());
         $I->amOnPage('/');
 
-        $I->see(
-            'Logout (' . UserFixture::ACTIVE_ADMIN_USERNAME . ')'
-        );
+        $I->seeCurrentUrlEquals('/dashboard/clients');
+        $I->see(UserFixture::ACTIVE_ADMIN_USERNAME);
+        $I->see('Вийти', 'button');
     }
 
     /**
-     * Перевіряє авторизацію через готову IdentityInterface entity.
+     * Перевіряє внутрішню Yii-авторизацію через готову IdentityInterface entity.
+     *
+     * На відміну від попереднього сценарію, тут Codeception отримує
+     * вже завантажений User instance, але зовнішній результат має бути тим самим:
+     * dashboard повинен бачити користувача як авторизованого.
      */
     public function internalLoginByInstance(FunctionalTester $I): void
     {
         $I->amLoggedInAs($this->admin);
         $I->amOnPage('/');
 
-        $I->see(
-            'Logout (' . UserFixture::ACTIVE_ADMIN_USERNAME . ')'
-        );
+        $I->seeCurrentUrlEquals('/dashboard/clients');
+        $I->see(UserFixture::ACTIVE_ADMIN_USERNAME);
+        $I->see('Вийти', 'button');
     }
 
     /**
