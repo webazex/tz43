@@ -17,6 +17,8 @@ use RuntimeException;
 use Throwable;
 use Yii;
 use yii\db\IntegrityException;
+use app\models\entities\Order;
+use app\models\entities\enums\OrderStatus;
 use yii\queue\Queue;
 
 final class ClientService
@@ -310,6 +312,7 @@ final class ClientService
      *
      * @return OperationResult<TopUpResult>
      */
+
     public function topUp(int $clientId, string $amount): OperationResult
     {
         try {
@@ -369,39 +372,64 @@ final class ClientService
                         $balanceAfterTopUp = $oldBalance->add($topUpAmount);
                     } catch (OverflowException) {
                         return OperationResult::failure(
-                            new OperationError(code: self::ERROR_BALANCE_LIMIT_EXCEEDED)
+                            new OperationError(
+                                code: self::ERROR_BALANCE_LIMIT_EXCEEDED
+                            )
                         );
                     }
 
+                    /**
+                     * Queue processing потрібен тільки тоді,
+                     * коли клієнт реально має pending-замовлення.
+                     */
+                    $hasPendingOrders = Order::find()
+                        ->where([
+                            'client_id' => $clientId,
+                            'status' => OrderStatus::Pending->value,
+                        ])
+                        ->exists();
+
                     $client->balance = $balanceAfterTopUp->toDecimal();
-                    $client->pending_processing_status = ClientPendingProcessingStatus::Queued->value;
+
+                    $client->pending_processing_status = $hasPendingOrders
+                        ? ClientPendingProcessingStatus::Queued->value
+                        : ClientPendingProcessingStatus::Idle->value;
 
                     /**
-                     * Зберігаємо тільки атрибути поточного use case.
-                     * TimestampBehavior самостійно оновить updated_at.
+                     * Баланс і lifecycle-статус зберігаються
+                     * в межах однієї транзакції.
                      */
-                    if (!$client->save(false, ['balance', 'pending_processing_status', 'updated_at'])) {
-                        throw new RuntimeException('Не вдалося зберегти поповнений баланс клієнта.');
+                    if (
+                        !$client->save(
+                            false,
+                            [
+                                'balance',
+                                'pending_processing_status',
+                                'updated_at',
+                            ]
+                        )
+                    ) {
+                        throw new RuntimeException(
+                            'Не вдалося зберегти поповнений баланс клієнта.'
+                        );
                     }
 
                     /**
-                     * У payload зберігається тільки clientId.
-                     * Processor прочитає актуальний баланс і pending-замовлення
-                     * вже під час виконання Job.
+                     * Якщо pending-замовлень немає,
+                     * асинхронна обробка взагалі не потрібна.
                      */
-                    $jobId = $this->queue->push(
-                        new ProcessPendingOrdersJob([
-                            'clientId' => $clientId,
-                        ])
-                    );
+                    if ($hasPendingOrders) {
+                        $jobId = $this->queue->push(
+                            new ProcessPendingOrdersJob([
+                                'clientId' => $clientId,
+                            ])
+                        );
 
-                    /**
-                     * Queue::push() може повернути null, якщо постановку Job
-                     * перехопив EVENT_BEFORE_PUSH. Такий результат не можна
-                     * вважати успішним поповненням.
-                     */
-                    if ($jobId === null) {
-                        throw new RuntimeException('Queue не повернула ідентифікатор створеної Job.');
+                        if ($jobId === null) {
+                            throw new RuntimeException(
+                                'Queue не повернула ідентифікатор створеної Job.'
+                            );
+                        }
                     }
 
                     return OperationResult::success(

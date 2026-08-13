@@ -11,10 +11,6 @@ use yii\helpers\Console;
 /**
  * Оркестратор початкового налаштування застосунку.
  *
- * Контролер не містить власної логіки міграцій або створення користувача.
- * Він послідовно запускає вже наявні консольні команди та контролює
- * їхні коди завершення.
- *
  * Основний виклик:
  *
  * php yii init/setup
@@ -22,19 +18,25 @@ use yii\helpers\Console;
 final class SetupController extends Controller
 {
     /**
-     * Виконує початкове налаштування застосунку.
+     * Дозволяє явно пропустити systemd Queue Worker,
+     * наприклад у локальному development environment.
      *
-     * Етапи:
-     * 1. Застосування всіх нових міграцій.
-     * 2. Інтерактивне створення адміністративного користувача.
+     * php yii init/setup --skipQueueWorker=1
      */
+    public int $skipQueueWorker = 0;
+
+    public function options($actionID): array
+    {
+        return array_merge(
+            parent::options($actionID),
+            [
+                'skipQueueWorker',
+            ]
+        );
+    }
+
     public function actionIndex(): int
     {
-        /**
-         * Створення адміністратора потребує введення логіна, email
-         * та пароля. Тому повністю неінтерактивний запуск Setup
-         * для поточної реалізації не підтримується.
-         */
         if (!$this->interactive) {
             $this->stderr(
                 "Початкове налаштування потребує інтерактивного режиму.\n",
@@ -51,17 +53,18 @@ final class SetupController extends Controller
         );
 
         $this->stdout(
-            "[1/2] Застосування міграцій...\n",
+            "[1/3] Застосування міграцій...\n",
             Console::FG_YELLOW,
             Console::BOLD
         );
 
-        /**
-         * Міграції запускаються без додаткового підтвердження,
-         * оскільки сам Setup уже є явною командою налаштування.
-         */
         $migrationExitCode = $this->normalizeExitCode(
-            $this->run('/migrate/up', ['interactive' => false])
+            $this->run(
+                '/migrate/up',
+                [
+                    'interactive' => false,
+                ]
+            )
         );
 
         if ($migrationExitCode !== ExitCode::OK) {
@@ -75,19 +78,15 @@ final class SetupController extends Controller
         }
 
         $this->stdout(
-            "\n[2/2] Створення адміністратора...\n",
+            "\n[2/3] Створення адміністратора...\n",
             Console::FG_YELLOW,
             Console::BOLD
         );
 
-        /**
-         * Юзаємо команду створення адміністратора.
-         *
-         * Setup не дублює запити даних, валідацію пароля,
-         * генерацію password_hash або збереження User.
-         */
         $administratorExitCode = $this->normalizeExitCode(
-            $this->run('/init/default-user/create')
+            $this->run(
+                '/init/default-user/create'
+            )
         );
 
         if ($administratorExitCode !== ExitCode::OK) {
@@ -101,6 +100,41 @@ final class SetupController extends Controller
         }
 
         $this->stdout(
+            "\n[3/3] Налаштування Queue Worker...\n",
+            Console::FG_YELLOW,
+            Console::BOLD
+        );
+
+        if ($this->skipQueueWorker === 1) {
+            $this->stdout(
+                "Queue Worker пропущено через --skipQueueWorker=1.\n",
+                Console::FG_YELLOW
+            );
+        } else {
+            $workerExitCode = $this->normalizeExitCode(
+                $this->run(
+                    '/init/queue-worker/install'
+                )
+            );
+
+            if ($workerExitCode !== ExitCode::OK) {
+                $this->stderr(
+                    "\nБазове налаштування виконано, "
+                    . "але постійний Queue Worker не встановлено.\n",
+                    Console::FG_RED,
+                    Console::BOLD
+                );
+
+                $this->stderr(
+                    "Без Queue Worker асинхронна обробка "
+                    . "pending-замовлень працювати не буде.\n"
+                );
+
+                return $workerExitCode;
+            }
+        }
+
+        $this->stdout(
             "\n=== Налаштування застосунку успішно завершено ===\n",
             Console::FG_GREEN,
             Console::BOLD
@@ -109,15 +143,9 @@ final class SetupController extends Controller
         return ExitCode::OK;
     }
 
-    /**
-     * Нормалізує результат виконання вкладеної console action.
-     *
-     * Controller::run() формально повертає mixed, хоча обидві наші
-     * команди повинні повертати ціле число — CLI exit code.
-     * Неочікуваний результат == помилка виконання.
-     */
-    private function normalizeExitCode(mixed $exitCode): int
-    {
+    private function normalizeExitCode(
+        mixed $exitCode
+    ): int {
         return is_int($exitCode)
             ? $exitCode
             : ExitCode::UNSPECIFIED_ERROR;
