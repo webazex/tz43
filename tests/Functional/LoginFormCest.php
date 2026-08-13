@@ -162,9 +162,9 @@ final class LoginFormCest
             'LoginForm[password]' => UserFixture::ACTIVE_ADMIN_PASSWORD,
         ]);
 
-        $I->see(
-            'Logout (' . UserFixture::ACTIVE_ADMIN_USERNAME . ')'
-        );
-        $I->dontSeeElement('form#login-form');
+        $I->seeCurrentUrlEquals('/dashboard/clients');
+        $I->see(UserFixture::ACTIVE_ADMIN_USERNAME);
+        $I->see('Вийти', 'button');
+        $I->dontSeeElement('#login-form');
     }
 }
