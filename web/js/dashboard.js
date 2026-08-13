@@ -502,19 +502,25 @@
             $(this).closest('.nav-group').toggleClass('is-open');
         });
 
-        $(document).on('click', '.modal-close', closeModal);
-        $(document).on('click', '#modal-layer', function (event) {
-            if (event.target === this) {
-                closeModal();
-            }
-        });
+      /**
+       * Модальні вікна закриваються тільки явною дією користувача:
+       * кнопкою закриття, кнопкою "Скасувати" або після успішної операції.
+       *
+       * Закриття через backdrop та Escape навмисно не використовується.
+       * У формах створення/редагування це могло призвести до випадкової
+       * втрати вже введених користувачем даних.
+       */
+      $(document).on('click', '.modal-close', closeModal);
 
-        $(document).on('keydown', function (event) {
-            if (event.key === 'Escape') {
-                closeModal();
-                $('body').removeClass('is-mobile-nav-open');
-            }
-        });
+      /**
+       * Escape залишаємо тільки для закриття мобільної навігації.
+       * Модальне вікно цей global handler більше не змінює.
+       */
+      $(document).on('keydown', function (event) {
+        if (event.key === 'Escape') {
+          $('body').removeClass('is-mobile-nav-open');
+        }
+      });
     }
 
     /* ----------------------------------------------------------------------
