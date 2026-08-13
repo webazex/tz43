@@ -16,6 +16,13 @@ modules:
   config:
     Yii2:
       configFile: config/test.php
+
+      # Functional-тести виконують декілька HTTP-запитів
+      # в одному PHP-процесі. yii\web\View зберігає lifecycle state
+      # beginPage()/endPage(), тому його необхідно перевідтворювати
+      # перед наступним request.
+      recreateComponents:
+        - view
 extensions:
   enabled:
     - Codeception\Extension\RunFailed
