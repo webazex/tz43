@@ -34,7 +34,7 @@ $config = [
         ],
         'user' => [
             'identityClass' => \app\models\entities\User::class,
-            'enableAutoLogin' => true,
+            'enableAutoLogin' => false,
         ],
         'errorHandler' => [
             'errorAction' => 'site/error',

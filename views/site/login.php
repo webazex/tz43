@@ -44,8 +44,6 @@ $this->title = 'Вхід · TZ43';
             <?= Html::error($model, 'password', ['class' => 'field-error']) ?>
         </div>
 
-        <?= Html::activeHiddenInput($model, 'rememberMe', ['value' => '1']) ?>
-
         <button class="btn btn--primary btn--wide" type="submit">Увійти</button>
     <?= Html::endForm() ?>
 </main>

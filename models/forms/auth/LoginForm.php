@@ -18,7 +18,6 @@ class LoginForm extends Model
 {
     public string $username = '';
     public string $password = '';
-    public bool $rememberMe = true;
     private User|null $_user = null;
     private bool $_userLoaded = false;
     public function __construct(private readonly Security $security, $config = [])
@@ -34,8 +33,6 @@ class LoginForm extends Model
         return [
             // username and password are both required
             [['username', 'password'], 'required'],
-            // rememberMe must be a boolean value
-            ['rememberMe', 'boolean'],
             // password is validated by validatePassword()
             ['password', 'validatePassword'],
         ];
@@ -60,16 +57,20 @@ class LoginForm extends Model
     }
 
     /**
-     * Logs in a user using the provided username and password.
-     * @return bool whether the user is logged in successfully
+     * Авторизує адміністративного користувача в межах поточної Yii session.
+     *
+     * Persistent login навмисно не використовується:
+     * після завершення session користувач повинен авторизуватися повторно.
      */
     public function login(): bool
     {
-        if ($this->validate()) {
-            return Yii::$app->user->login($this->getUser(), $this->rememberMe ? 3600 * 24 * 30 : 0);
+        if (!$this->validate()) {
+            return false;
         }
 
-        return false;
+        $user = $this->getUser();
+
+        return $user !== null && Yii::$app->user->login($user);
     }
 
     /**
