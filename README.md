@@ -2,34 +2,35 @@
 
 Тестовий проєкт на Yii2 Framework 2.0 для керування клієнтами, балансами та замовленнями.
 
-Проєкт реалізує REST API та server-rendered адміністративну панель для основних бізнес-сценаріїв:
+Застосунок реалізує REST API та server-rendered адміністративну панель для основних бізнес-сценаріїв:
 
-- створення та перегляд клієнтів;
-- редагування нефінансових даних клієнта;
-- пошук та фільтрація клієнтів;
-- створення замовлень;
-- автоматичне списання коштів за наявності достатнього балансу;
-- створення `pending`-замовлень при недостатньому балансі;
-- поповнення балансу;
-- асинхронна обробка `pending`-замовлень через `yii2-queue`;
-- скасування `pending`-замовлень;
-- web-dashboard для адміністратора;
-- Unit та Functional tests на Codeception.
+* створення та перегляд клієнтів;
+* редагування нефінансових даних клієнта;
+* пошук, фільтрація та сортування клієнтів;
+* створення замовлень;
+* автоматичне списання коштів за наявності достатнього балансу;
+* створення `pending`-замовлень при недостатньому балансі;
+* поповнення балансу;
+* асинхронна обробка `pending`-замовлень через `yii2-queue`;
+* скасування `pending`-замовлень;
+* web-dashboard для адміністратора;
+* Unit та Functional tests на Codeception.
 
 ---
 
-## Технології
+# Технології
 
-- PHP 8.2+
-- Yii2 Framework 2.0
-- Yii2 Active Record
-- Yii2 Basic Application + окремий API module
-- yii2-queue
-- MySQL / MariaDB
-- Codeception 5
-- HTML
-- CSS
-- jQuery
+* PHP 8.2+
+* Yii2 Framework 2.0
+* Yii2 Active Record
+* Yii2 Basic Application + окремий API module
+* yii2-queue
+* MySQL / MariaDB
+* Codeception 5
+* HTML
+* CSS
+* jQuery
+* systemd для production-like Queue Worker
 
 ---
 
@@ -149,7 +150,7 @@ Accept: application/json
 
 ## 5. Початкове налаштування
 
-Проєкт містить єдину setup-команду:
+Проєкт містить єдину setup-команду для початкового deployment:
 
 ```bash
 php yii init/setup
@@ -157,19 +158,127 @@ php yii init/setup
 
 Команда послідовно:
 
-1. застосовує application migrations;
-2. застосовує офіційні DB migrations `yii2-queue`;
-3. запускає інтерактивне створення адміністратора.
+1. застосовує application migrations та офіційні DB migrations `yii2-queue`;
+2. запускає інтерактивне створення адміністративного користувача;
+3. на Linux/systemd-середовищі встановлює та запускає постійний Queue Worker.
 
 Під час створення адміністратора потрібно ввести:
 
-- login;
-- email;
-- password.
+* login;
+* email;
+* password.
 
-Setup навмисно є інтерактивним, оскільки пароль адміністратора не повинен бути захардкоджений у deployment-скриптах.
+Setup навмисно є інтерактивним, оскільки пароль адміністратора не повинен бути захардкоджений у deployment scripts.
 
-За потреби міграції можна виконати окремо:
+### Queue Worker під час setup
+
+Асинхронна обробка `pending`-замовлень є частиною штатної роботи застосунку.
+
+Тому Queue Worker є **обов'язковим runtime-компонентом production-like deployment**, а не optional maintenance-командою.
+
+Під час:
+
+```bash
+php yii init/setup
+```
+
+на Linux-системі з `systemd` встановлюється service:
+
+```text
+tz43-queue.service
+```
+
+який постійно виконує:
+
+```bash
+php yii queue/listen
+```
+
+Service налаштовується на:
+
+* автоматичний запуск після reboot;
+* постійну роботу у background;
+* автоматичний restart після аварійного завершення worker.
+
+Для створення unit-файлу та керування systemd можуть знадобитися `sudo`-права.
+
+Сам `php yii init/setup` не потрібно запускати від `root`: privileged systemd operations виконуються окремо.
+
+Queue Worker повинен працювати від звичайного OS user, який має необхідний доступ до application files, runtime directory та database configuration.
+
+### Перевірка Queue Worker
+
+Після встановлення:
+
+```bash
+php yii init/queue-worker/check
+```
+
+Також можна використовувати стандартні systemd-команди:
+
+```bash
+systemctl status tz43-queue
+```
+
+Restart:
+
+```bash
+systemctl restart tz43-queue
+```
+
+Перегляд runtime logs:
+
+```bash
+journalctl -u tz43-queue -f
+```
+
+### Встановлення worker на вже налаштованому сервері
+
+Якщо migrations та administrator вже створені, повторно запускати повний:
+
+```bash
+php yii init/setup
+```
+
+не потрібно.
+
+Queue Worker можна встановити окремо:
+
+```bash
+php yii init/queue-worker/install
+```
+
+Після цього:
+
+```bash
+php yii init/queue-worker/check
+```
+
+### Local development або середовище без systemd
+
+Автоматичне встановлення systemd worker можна пропустити:
+
+```bash
+php yii init/setup --skipQueueWorker=1
+```
+
+Поточну Queue можна одноразово обробити:
+
+```bash
+php yii queue/run
+```
+
+Або запустити foreground worker:
+
+```bash
+php yii queue/listen
+```
+
+Для production-like deployment ручний foreground-запуск не є заміною постійного process manager.
+
+### Окремий запуск migrations
+
+За потреби:
 
 ```bash
 php yii migrate --interactive=0
@@ -224,7 +333,9 @@ Password: Alohomora*001
 
 Credentials наведені в README навмисно: це окремий тестовий стенд тестового завдання, а не production credentials.
 
-Persistent `remember me` для адміністративної панелі не використовується. Авторизація діє в межах Yii session.
+Persistent `remember me` для адміністративної панелі не використовується.
+
+Авторизація діє в межах Yii session.
 
 ---
 
@@ -266,7 +377,10 @@ blocked
 
 не може створювати нові замовлення.
 
-При цьому blocked-клієнту не заборонено поповнювати баланс або оплачувати вже створені раніше pending-замовлення.
+При цьому blocked-клієнту не заборонено:
+
+* поповнювати баланс;
+* оплачувати вже створені раніше `pending`-замовлення через Queue processing.
 
 ---
 
@@ -278,17 +392,119 @@ blocked
 POST /clients/{id}/topup
 ```
 
-Синхронна частина операції:
+Фінансова операція виконується транзакційно.
 
-1. блокує фінансовий стан клієнта;
-2. збільшує баланс;
-3. переводить pending-processing lifecycle у стан обробки;
-4. ставить `ProcessPendingOrdersJob` у DB Queue;
-5. повертає HTTP `202 Accepted`.
+На початку use case рядок клієнта блокується через database row-level lock.
 
-Відповідь містить баланс **одразу після top-up**, але до гарантованого завершення Queue Job.
+Це серіалізує для одного клієнта:
 
-Фінальний баланс потрібно отримувати окремим:
+```text
+top-up
+order creation
+pending orders processing
+```
+
+і не дозволяє конкурентним операціям одночасно змінювати один balance.
+
+Після блокування:
+
+1. валідується сума;
+2. читається актуальний balance;
+3. розраховується новий balance;
+4. перевіряється наявність `pending`-замовлень;
+5. balance та pending-processing lifecycle зберігаються в одній transaction.
+
+Подальша поведінка залежить від наявності `pending` orders.
+
+### Якщо pending-замовлень немає
+
+Асинхронна обробка не потрібна.
+
+Результат:
+
+```text
+balance += top-up amount
+pending_processing_status = idle
+Queue Job не створюється
+```
+
+Після завершення top-up клієнт одразу може створювати нові замовлення.
+
+Це запобігає ситуації, коли звичайне поповнення балансу без будь-яких pending orders безпідставно блокує подальші операції клієнта.
+
+### Якщо pending-замовлення існують
+
+Після зміни balance клієнт переводиться у lifecycle state:
+
+```text
+queued
+```
+
+і в DB Queue додається:
+
+```text
+ProcessPendingOrdersJob
+```
+
+Flow:
+
+```text
+idle
+  ↓
+top-up
+  ↓
+queued
+  ↓
+DB Queue
+  ↓
+Queue Worker
+  ↓
+PendingOrdersProcessor
+  ↓
+idle
+```
+
+Поки pending-processing lifecycle не повернувся у:
+
+```text
+idle
+```
+
+створення нового order для цього клієнта блокується.
+
+Application повертає:
+
+```text
+CLIENT_BALANCE_PROCESSING
+```
+
+Це необхідно, щоб новий order не використав balance, який у цей момент ще призначений для обробки раніше створених `pending` orders.
+
+### HTTP response
+
+Успішний top-up повертає:
+
+```text
+202 Accepted
+```
+
+Response містить:
+
+```json
+{
+    "success": true,
+    "data": {
+        "creditedAmount": "100.00",
+        "oldBalance": "25.00",
+        "balanceAfterTopUp": "125.00"
+    },
+    "error": null
+}
+```
+
+Якщо `pending` orders існують, `balanceAfterTopUp` показує balance **одразу після поповнення**, але ще до гарантованого завершення Queue Job.
+
+Фінальний balance можна отримати:
 
 ```http
 GET /clients/{id}
@@ -298,7 +514,25 @@ GET /clients/{id}
 
 ## Обробка pending orders
 
-Pending orders обробляються Queue Job у порядку:
+Pending orders обробляються `ProcessPendingOrdersJob`.
+
+Job не містить фінансової business logic самостійно.
+
+Вона передає:
+
+```text
+clientId
+```
+
+у:
+
+```text
+PendingOrdersProcessor
+```
+
+Processor повторно читає актуальний фінансовий стан клієнта всередині transaction та використовує row-level locking.
+
+Pending orders вибираються у порядку:
 
 ```text
 created_at ASC, id ASC
@@ -306,7 +540,13 @@ created_at ASC, id ASC
 
 Використовується **нестрогий FIFO**.
 
-Якщо для конкретного старішого order поточного балансу недостатньо, він залишається `pending`, але processor продовжує перевіряти наступні orders.
+Якщо для конкретного старішого order поточного balance недостатньо, order залишається:
+
+```text
+pending
+```
+
+але processor продовжує перевіряти наступні orders.
 
 Наприклад:
 
@@ -326,9 +566,79 @@ orders:
 balance → 15
 ```
 
-Такий варіант дозволяє не блокувати оплату наступного доступного замовлення одним великим order.
+Таким чином один великий order не блокує оплату наступного order, для якого коштів достатньо.
 
-Обробка виконується транзакційно та використовує row-level locking клієнта, щоб паралельні фінансові операції одного клієнта не змінювали баланс одночасно.
+Після успішного завершення processing lifecycle клієнта повертається у:
+
+```text
+idle
+```
+
+---
+
+## Queue Worker та стан `queued`
+
+Queue Worker є критичним runtime-компонентом для клієнтів, які мають `pending` orders.
+
+Якщо під час top-up існували pending orders:
+
+```text
+top-up
+  ↓
+pending_processing_status = queued
+  ↓
+ProcessPendingOrdersJob
+```
+
+Подальший перехід назад у:
+
+```text
+idle
+```
+
+відбудеться тільки після фактичного виконання Queue Job.
+
+Якщо Queue Worker не працює:
+
+```text
+Job залишається у DB Queue
+↓
+client залишається queued
+↓
+нові orders блокуються
+↓
+CLIENT_BALANCE_PROCESSING
+```
+
+Просте очікування цей стан не виправить.
+
+Необхідно, щоб Job фактично забрав Queue Worker.
+
+Перевірка worker:
+
+```bash
+php yii init/queue-worker/check
+```
+
+або:
+
+```bash
+systemctl status tz43-queue
+```
+
+Перевірка Queue:
+
+```bash
+php yii queue/info
+```
+
+Аварійна одноразова обробка накопиченої Queue:
+
+```bash
+php yii queue/run
+```
+
+Після цього Queue Worker все одно повинен бути відновлений як постійний runtime process.
 
 ---
 
@@ -340,7 +650,23 @@ balance → 15
 pending
 ```
 
-Спроба скасувати вже `paid` або `canceled` order повертає HTTP `409 Conflict`.
+Спроба скасувати вже:
+
+```text
+paid
+```
+
+або:
+
+```text
+canceled
+```
+
+order повертає:
+
+```text
+409 Conflict
+```
 
 ---
 
@@ -350,18 +676,18 @@ API навмисно залишається без `/api/v1` prefix у межа�
 
 Основні routes:
 
-| Method | Endpoint | Призначення |
-|---|---|---|
-| GET | `/clients` | Список клієнтів |
-| GET | `/clients/search` | Пошук / фільтрація клієнтів |
-| GET | `/clients/{id}` | Один клієнт |
-| POST | `/clients` | Створення клієнта |
-| PATCH | `/clients/{id}` | Редагування клієнта |
-| POST | `/clients/{id}/topup` | Поповнення балансу |
-| GET | `/orders` | Список замовлень |
-| GET | `/orders/{id}` | Одне замовлення |
-| POST | `/orders` | Створення замовлення |
-| POST | `/orders/{id}/cancel` | Скасування pending order |
+| Method | Endpoint              | Призначення                 |
+| ------ | --------------------- | --------------------------- |
+| GET    | `/clients`            | Список клієнтів             |
+| GET    | `/clients/search`     | Пошук / фільтрація клієнтів |
+| GET    | `/clients/{id}`       | Один клієнт                 |
+| POST   | `/clients`            | Створення клієнта           |
+| PATCH  | `/clients/{id}`       | Редагування клієнта         |
+| POST   | `/clients/{id}/topup` | Поповнення балансу          |
+| GET    | `/orders`             | Список замовлень            |
+| GET    | `/orders/{id}`        | Одне замовлення             |
+| POST   | `/orders`             | Створення замовлення        |
+| POST   | `/orders/{id}/cancel` | Скасування pending order    |
 
 ---
 
@@ -394,7 +720,7 @@ Failure:
 
 HTTP status та application error code використовуються разом.
 
-Типові status codes:
+Типові HTTP statuses:
 
 ```text
 200 OK
@@ -433,7 +759,7 @@ curl -X POST "$BASE_URL/clients" \
     }'
 ```
 
-`balance` необов'язковий та за замовчуванням дорівнює:
+`balance` необов'язковий та за замовчуванням:
 
 ```text
 0.00
@@ -445,7 +771,7 @@ curl -X POST "$BASE_URL/clients" \
 active
 ```
 
-Приклад успішної відповіді:
+Успішна відповідь:
 
 ```json
 {
@@ -487,7 +813,7 @@ curl "$BASE_URL/clients?page=1&per-page=20" \
     -H "Accept: application/json"
 ```
 
-Відповідь містить:
+Response містить:
 
 ```json
 {
@@ -524,7 +850,11 @@ curl "$BASE_URL/clients/search?field=name&value=Test&like=1&relation=off&page=1&
     -H "Accept: application/json"
 ```
 
-Dashboard також використовує цей endpoint для server-side search, filters та balance sorting.
+Dashboard також використовує цей endpoint для:
+
+* server-side search;
+* filtering;
+* balance sorting.
 
 ---
 
@@ -550,7 +880,7 @@ Balance змінюється тільки через окремий top-up use c
 
 ## Створити замовлення
 
-`amount` передається decimal-string, щоб transport layer не вносив FLOAT-похибку.
+`amount` передається як decimal-string, щоб transport layer не вносив FLOAT-похибку.
 
 ```bash
 curl -X POST "$BASE_URL/orders" \
@@ -564,7 +894,7 @@ curl -X POST "$BASE_URL/orders" \
     }'
 ```
 
-Статус не передається клієнтом API.
+Статус не передається API client.
 
 Його визначає backend:
 
@@ -656,7 +986,9 @@ HTTP status:
 202 Accepted
 ```
 
-`balanceAfterTopUp` не є гарантованим фінальним балансом після асинхронної оплати pending orders.
+Якщо у клієнта немає pending orders, Queue Job не створюється і `balanceAfterTopUp` є актуальним balance після завершення top-up.
+
+Якщо pending orders існують, `balanceAfterTopUp` ще не є гарантованим фінальним balance після їх асинхронної оплати.
 
 ---
 
@@ -686,28 +1018,73 @@ yii2-queue
 
 Queue table створюється офіційними migrations пакета `yii2-queue`, які підключені до стандартної application migration-команди.
 
-Для одноразової обробки поточної черги:
+## Runtime flow
+
+Production-like flow:
+
+```text
+systemd
+    ↓
+tz43-queue.service
+    ↓
+php yii queue/listen
+    ↓
+DB Queue
+    ↓
+ProcessPendingOrdersJob
+    ↓
+PendingOrdersProcessor
+```
+
+На свіжому Linux/systemd deployment worker встановлюється через:
+
+```bash
+php yii init/setup
+```
+
+Окрема установка:
+
+```bash
+php yii init/queue-worker/install
+```
+
+Перевірка:
+
+```bash
+php yii init/queue-worker/check
+```
+
+Для одноразової обробки поточної Queue:
 
 ```bash
 php yii queue/run
 ```
 
-Для постійного worker:
+Для ручного foreground worker:
 
 ```bash
 php yii queue/listen
 ```
 
-У production-подібному середовищі `queue/listen` потрібно запускати через process manager, наприклад:
+У production-like environment постійний Queue Worker повинен працювати під process manager.
+
+Для Linux/systemd deployment проєкт автоматизує це через:
 
 ```text
-systemd
-Supervisor
+tz43-queue.service
 ```
 
-Queue Job не містить самостійної фінансової бізнес-логіки.
+Queue Job не містить самостійної фінансової business logic.
 
-Він передає `clientId` у application processor, який виконує транзакцію, row locking та обробку pending orders.
+Вона лише передає `clientId` у application processor, який відповідає за:
+
+* transaction;
+* row-level locking;
+* читання актуального balance;
+* вибір pending orders;
+* списання коштів;
+* зміну order statuses;
+* повернення client lifecycle до `idle`.
 
 ---
 
@@ -715,7 +1092,7 @@ Queue Job не містить самостійної фінансової біз
 
 Проєкт містить Unit та Functional tests на Codeception.
 
-Найбільш важливі business scenarios перевіряються Functional suite через реальні:
+Найважливіші business scenarios перевіряються Functional suite через реальні:
 
 ```text
 routes
@@ -726,7 +1103,7 @@ database
 DB Queue
 ```
 
-без виклику REST controller methods напряму.
+без прямого виклику REST controller methods.
 
 ## Налаштування test database
 
@@ -750,7 +1127,7 @@ cp config/local/test_db.example.php config/local/test_db.php
 tz43_test
 ```
 
-а username/password успадковуються з основного:
+Username/password успадковуються з основного:
 
 ```text
 config/local/db.php
@@ -778,13 +1155,13 @@ vendor/bin/codecept run Unit
 vendor/bin/codecept run Functional
 ```
 
-Functional tests використовують окремий deterministic API token, визначений тільки в:
+Functional tests використовують окремий deterministic API token, визначений тільки у:
 
 ```text
 config/test.php
 ```
 
-та не залежать від production/local API tokens.
+і не залежать від production/local API tokens.
 
 ---
 
@@ -822,6 +1199,7 @@ assets/
 commands/
     init/
         DefaultUserController.php
+        QueueWorkerController.php
         SetupController.php
 
 config/
@@ -918,7 +1296,7 @@ web/
 
 Проєкт навмисно не перетворювався на велику багатошарову систему.
 
-Для тестового завдання використано мінімальний набір abstractions, які мають конкретну відповідальність.
+Для тестового завдання використано мінімальний набір abstractions з конкретною відповідальністю.
 
 ## Controller
 
@@ -970,11 +1348,33 @@ OrderService
 
 Service Layer відповідає за:
 
-- orchestration business operation;
-- transaction boundaries;
-- persistence;
-- financial consistency;
-- application errors.
+* orchestration business operation;
+* transaction boundaries;
+* persistence;
+* financial consistency;
+* application errors.
+
+---
+
+## PendingOrdersProcessor
+
+Асинхронна фінансова обробка винесена в:
+
+```text
+PendingOrdersProcessor
+```
+
+Processor відповідає за:
+
+* блокування фінансового стану клієнта;
+* читання актуального balance;
+* вибір `pending` orders;
+* нестрогий FIFO processing;
+* атомарне списання коштів;
+* зміну order statuses;
+* завершення pending-processing lifecycle.
+
+Queue Job залишається тонким transport/runtime wrapper і не дублює application logic.
 
 ---
 
@@ -1005,7 +1405,9 @@ OperationError
 а mapping:
 
 ```text
-application result → HTTP status / JSON
+application result
+↓
+HTTP status / JSON
 ```
 
 залишається відповідальністю controller layer.
@@ -1184,30 +1586,35 @@ enableAutoLogin = false
 
 Спеціальний WAF exception для `_identity` навмисно не створювався.
 
-Якщо persistent `remember me` буде потрібний у іншому deployment, для нього потрібно окремо проаналізувати WAF policy та створити максимально вузьке exception, а не вимикати SQLi rules глобально.
+Якщо persistent `remember me` буде потрібний в іншому deployment, для нього потрібно окремо проаналізувати WAF policy та створити максимально вузьке exception, а не вимикати SQLi rules глобально.
 
 ---
 
-# Осознані обмеження
+# Усвідомлені обмеження
 
 Проєкт є тестовим завданням, тому навмисно не реалізовувалися компоненти, які не потрібні основному сценарію.
 
 Зокрема, зараз відсутні:
 
-- Redis balance cache;
-- webhook при переході order у `paid`;
-- повний Idempotency-Key layer;
-- окрема event architecture;
-- RBAC з декількома admin roles;
-- Docker infrastructure;
-- Kubernetes;
-- горизонтальне масштабування;
-- frontend SPA;
-- складний analytics dashboard.
+* Redis balance cache;
+* webhook при переході order у `paid`;
+* повний `Idempotency-Key` layer;
+* окрема event architecture;
+* RBAC з декількома admin roles;
+* Docker infrastructure;
+* Kubernetes;
+* горизонтальне масштабування;
+* frontend SPA;
+* складний analytics dashboard.
 
-Ці можливості можуть бути додані окремими use cases без 
-необхідності переписувати базовий flow клієнтів, 
-balance та orders.
+Ці можливості можуть бути додані окремими use cases без необхідності переписувати базовий flow:
+
+```text
+clients
+balance
+orders
+queue processing
+```
 
 ---
 
@@ -1219,14 +1626,12 @@ balance та orders.
 2. webhook `OrderPaid`;
 3. Redis caching для balance;
 4. domain/application events:
-    - `OrderPaid`;
-    - `BalanceUpdated`;
-    - `PendingOrdersProcessed`;
+
+    * `OrderPaid`;
+    * `BalanceUpdated`;
+    * `PendingOrdersProcessed`;
 5. integration/load tests з конкурентними запитами;
 6. окремий OpenAPI contract;
 7. containerized development environment.
 
-Ці задачі не додавалися в основну реалізацію лише 
-заради демонстрації abstractions, оскільки вони не
-потрібні для завершення основного business scenario 
-тестового завдання.
+Ці задачі не додавалися в основну реалізацію лише заради демонстрації abstractions, оскільки вони не потрібні для завершення основного business scenario тестового завдання.
