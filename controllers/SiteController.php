@@ -91,14 +91,6 @@ class SiteController extends Controller
     }
 
     /**
-     * Displays homepage.
-     */
-    public function actionIndex(): string
-    {
-        return $this->render('login');
-    }
-
-    /**
      * Авторизація адміністратора через існуючий LoginForm.
      *
      * Для login використовується окремий легкий layout, щоб стандартний

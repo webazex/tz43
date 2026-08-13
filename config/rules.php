@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 return [
     // Frontend
-    '' => 'site/index',
+    '' => 'site/login',
 
     'GET,POST login' => 'site/login',
     'POST logout' => 'site/logout',
