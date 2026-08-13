@@ -94,3 +94,22 @@ web/
     js/
     images/
     index.php               Web entry point
+
+
+## Демонстраційний доступ до адміністративної панелі
+
+Для перевірки тестового стенду можна використати окремий демонстраційний обліковий запис адміністратора:
+
+Login:    webazex
+Password: Alohomora*001
+
+## Важливо для deployment: ModSecurity / OWASP CRS та HTTP 406
+
+Під час перевірки тестового стенду за Nginx + ModSecurity + OWASP Core Rule Set були виявлені два environment-specific
+ сценарії, які можуть проявлятися як HTTP `406 Not Acceptable` ще **до передачі запиту в Yii**.
+
+### 1. `PATCH` може блокуватися правилом CRS `911100`
+
+Оновлення клієнта реалізовано через REST endpoint:
+
+PATCH /clients/{id}
