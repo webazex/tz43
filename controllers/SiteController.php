@@ -29,17 +29,36 @@ class SiteController extends Controller
     }
 
     /**
-     * {@inheritdoc}
+     * Web-dashboard використовує звичайну Yii session-auth.
+     *
+     * API-захист залишається в ApiController, а тут контролюється тільки
+     * доступ до server-rendered сторінок адміністративної панелі.
      */
     public function behaviors(): array
     {
         return [
             'access' => [
                 'class' => AccessControl::class,
-                'only' => ['logout', 'dashboard'],
+                'only' => [
+                    'logout',
+                    'dashboard',
+                    'profile',
+                    'clients',
+                    'client',
+                    'orders',
+                    'order-create',
+                ],
                 'rules' => [
                     [
-                        'actions' => ['logout', 'dashboard'],
+                        'actions' => [
+                            'logout',
+                            'dashboard',
+                            'profile',
+                            'clients',
+                            'client',
+                            'orders',
+                            'order-create',
+                        ],
                         'allow' => true,
                         'roles' => ['@'],
                     ],
@@ -73,8 +92,6 @@ class SiteController extends Controller
 
     /**
      * Displays homepage.
-     *
-     * @return string
      */
     public function actionIndex(): string
     {
@@ -82,43 +99,48 @@ class SiteController extends Controller
     }
 
     /**
-     * Login action.
+     * Авторизація адміністратора через існуючий LoginForm.
      *
-     * @return Response|string
+     * Для login використовується окремий легкий layout, щоб стандартний
+     * Bootstrap-shell Yii2 Basic не змішувався із затвердженим dashboard UI.
      */
     public function actionLogin(): Response|string
     {
         if (!Yii::$app->user->isGuest) {
-            return $this->goHome();
+            return $this->redirect(['site/clients']);
         }
 
+        $this->layout = 'dashboard/auth';
         $model = new LoginForm($this->security);
 
         if ($model->load($this->request->post()) && $model->login()) {
-            return $this->goBack();
+            /**
+             * Якщо AccessControl зберіг returnUrl — повертаємо користувача туди.
+             * Інакше dashboard стартує зі списку клієнтів.
+             */
+            return $this->goBack(['site/clients']);
         }
 
+        /**
+         * Пароль не повертаємо назад у HTML після невдалої авторизації.
+         */
         $model->password = '';
 
         return $this->render('login', ['model' => $model]);
     }
 
     /**
-     * Logout action.
-     *
-     * @return Response
+     * Завершує session-auth та повертає на форму входу.
      */
     public function actionLogout(): Response
     {
         Yii::$app->user->logout();
 
-        return $this->goHome();
+        return $this->redirect(['site/login']);
     }
 
     /**
      * Displays contact page.
-     *
-     * @return Response|string
      */
     public function actionContact(): Response|string
     {
@@ -145,18 +167,68 @@ class SiteController extends Controller
 
     /**
      * Displays about page.
-     *
-     * @return string
      */
     public function actionAbout(): string
     {
         return $this->render('about');
     }
 
-    public function actionDashboard(): string
+    /**
+     * Кореневий dashboard не дублює окрему сторінку та веде у clients list.
+     */
+    public function actionDashboard(): Response
+    {
+        return $this->redirect(['site/clients']);
+    }
+
+    /**
+     * Read-only профіль адміністратора.
+     */
+    public function actionProfile(): string
     {
         $this->layout = 'dashboard/main';
 
-        return $this->render('dashboard');
+        return $this->render('dashboard/profile');
+    }
+
+    /**
+     * Сторінка списку клієнтів. Сам список завантажується через REST API.
+     */
+    public function actionClients(): string
+    {
+        $this->layout = 'dashboard/main';
+
+        return $this->render('dashboard/clients');
+    }
+
+    /**
+     * Сторінка клієнта передає у JS тільки route-параметр ID.
+     * Business/application data завантажується через існуючий API.
+     */
+    public function actionClient(int $id): string
+    {
+        $this->layout = 'dashboard/main';
+
+        return $this->render('dashboard/client', ['clientId' => $id]);
+    }
+
+    /**
+     * Загальний список замовлень.
+     */
+    public function actionOrders(): string
+    {
+        $this->layout = 'dashboard/main';
+
+        return $this->render('dashboard/orders');
+    }
+
+    /**
+     * Окрема web-форма створення замовлення.
+     */
+    public function actionOrderCreate(): string
+    {
+        $this->layout = 'dashboard/main';
+
+        return $this->render('dashboard/order-create');
     }
 }

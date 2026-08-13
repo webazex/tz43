@@ -22,25 +22,28 @@ use yii\queue\Queue;
 final class ClientService
 {
     public const ERROR_CREATE_FAILED = 'CLIENT_CREATE_FAILED';
+    public const ERROR_UPDATE_FAILED = 'CLIENT_UPDATE_FAILED';
     public const ERROR_DATA_CONFLICT = 'CLIENT_DATA_CONFLICT';
     public const ERROR_NOT_FOUND = 'CLIENT_NOT_FOUND';
     public const ERROR_TOP_UP_INVALID_AMOUNT = 'CLIENT_TOP_UP_INVALID_AMOUNT';
     public const ERROR_BALANCE_LIMIT_EXCEEDED = 'CLIENT_BALANCE_LIMIT_EXCEEDED';
     public const ERROR_TOP_UP_FAILED = 'CLIENT_TOP_UP_FAILED';
 
+    private const SEARCH_RELATION_AND = 'and';
+    private const SEARCH_RELATION_OR = 'or';
+    private const SEARCH_RELATION_OFF = 'off';
+    private const BALANCE_SORT_ASC = 'asc';
+    private const BALANCE_SORT_DESC = 'desc';
+
     /**
-     * Queue передається через DI та посилається
-     * на application-компонент `queue`.
+     * Queue передається через DI та посилається на application-компонент `queue`.
      */
     public function __construct(private readonly Queue $queue)
     {
     }
 
     /**
-     * Беремо вже готовий набір даних про клієнта і створюємо клієнта.
-     *
-     * Метод не залежить від джерела даних і не виконує транспортних операцій.
-     * API, CLI та Admin використовують один application use case.
+     * Створює клієнта з уже валідованих значень use case.
      *
      * @return OperationResult<Client>
      */
@@ -65,10 +68,12 @@ final class ClientService
                 );
             }
         } catch (IntegrityException) {
+            /**
+             * UNIQUE constraint у БД залишається фінальним захистом
+             * від race condition для email.
+             */
             return OperationResult::failure(
-                new OperationError(
-                    code: self::ERROR_DATA_CONFLICT,
-                )
+                new OperationError(code: self::ERROR_DATA_CONFLICT)
             );
         }
 
@@ -122,16 +127,17 @@ final class ClientService
     }
 
     /**
-     * Шукає клієнтів за одним явно дозволеним полем.
+     * Виконує серверний пошук/фільтрацію клієнтів ДО pagination.
      *
-     * Підтримуються два режими порівняння:
+     * Підтримується тільки явний набір можливостей затвердженого UI:
+     * - text condition по name/email;
+     * - status;
+     * - relation AND/OR/off між text та status;
+     * - balance sort asc/desc.
      *
-     * - $like = false — точне порівняння значення;
-     * - $like = true  — частковий збіг через LIKE.
-     *
-     * Метод повторно перевіряє ім'я поля незалежно від Form Model.
-     * Це важливо, оскільки ClientService може бути викликаний не лише
-     * через HTTP-контролер, а й з іншого application entry point.
+     * Тут немає довільних назв колонок, операторів або transport-driven SQL.
+     * Service повторно перевіряє allowlist, тому його безпечно викликати не
+     * лише з HTTP-controller.
      *
      * @return array{items: list<Client>, totalCount: int}
      */
@@ -140,44 +146,82 @@ final class ClientService
         int $perPage,
         string $field,
         string $value,
-        bool $like
+        bool $like,
+        ?string $status,
+        string $relation,
+        ?string $balanceSort
     ): array {
-        /**
-         * Не використовуємо $field безпосередньо як довільне ім'я
-         * SQL-колонки. Service має власний allowlist незалежно
-         * від transport validation.
-         */
         $column = match ($field) {
             'name' => 'name',
             'email' => 'email',
-            default => throw new InvalidArgumentException(
-                'Непідтримуване поле пошуку клієнта.'
-            ),
+            default => throw new InvalidArgumentException('Непідтримуване поле пошуку клієнта.'),
         };
 
-        $query = Client::find()
-            ->orderBy(['id' => SORT_ASC]);
+        if ($status !== null && !in_array($status, [Client::STATUS_ACTIVE, Client::STATUS_BLOCKED], true)) {
+            throw new InvalidArgumentException('Непідтримуваний статус клієнта.');
+        }
 
-        if ($like) {
+        if (!in_array($relation, [self::SEARCH_RELATION_AND, self::SEARCH_RELATION_OR, self::SEARCH_RELATION_OFF], true)) {
+            throw new InvalidArgumentException('Непідтримувана relation пошуку клієнта.');
+        }
+
+        if ($balanceSort !== null && !in_array($balanceSort, [self::BALANCE_SORT_ASC, self::BALANCE_SORT_DESC], true)) {
+            throw new InvalidArgumentException('Непідтримуване сортування balance.');
+        }
+
+        $query = Client::find();
+
+        /**
+         * Text condition не створюється для порожнього value.
+         * Це дозволяє status працювати як самостійний фільтр.
+         */
+        $textCondition = null;
+        if ($value !== '') {
+            $textCondition = $like
+                ? ['like', $column, $value]
+                : [$column => $value];
+        }
+
+        $statusCondition = $status === null
+            ? null
+            : ['status' => $status];
+
+        if ($textCondition !== null && $statusCondition !== null) {
             /**
-             * Yii самостійно екранує значення та формує
-             * substring-пошук виду LIKE '%value%'.
+             * off означає: не приєднувати status до вже наявної text condition.
+             * Це відповідає погодженій семантиці UI, а не вимикає status-control.
              */
-            $query->andWhere(['like', $column, $value]);
-        } else {
+            match ($relation) {
+                self::SEARCH_RELATION_AND => $query->andWhere(['and', $textCondition, $statusCondition]),
+                self::SEARCH_RELATION_OR => $query->andWhere(['or', $textCondition, $statusCondition]),
+                self::SEARCH_RELATION_OFF => $query->andWhere($textCondition),
+            };
+        } elseif ($textCondition !== null) {
+            $query->andWhere($textCondition);
+        } elseif ($statusCondition !== null) {
             /**
-             * Точний режим означає відсутність wildcard.
-             *
-             * Регістр при цьому визначається collation таблиці БД,
-             * а не application-кодом.
+             * Якщо text відсутній, status працює самостійно незалежно від relation.
              */
-            $query->andWhere([$column => $value]);
+            $query->andWhere($statusCondition);
         }
 
         /**
-         * totalCount рахуємо після застосування search condition,
-         * щоб pagination описувала саме результат пошуку.
+         * Balance sort застосовується до всієї серверної вибірки до offset/limit.
+         * ID є стабільним tie-breaker для однакових балансів.
          */
+        if ($balanceSort === null) {
+            $query->orderBy(['id' => SORT_ASC]);
+        } else {
+            $direction = $balanceSort === self::BALANCE_SORT_ASC
+                ? SORT_ASC
+                : SORT_DESC;
+
+            $query->orderBy([
+                'balance' => $direction,
+                'id' => SORT_ASC,
+            ]);
+        }
+
         $totalCount = (int) (clone $query)->count();
 
         $items = $query
@@ -189,6 +233,68 @@ final class ClientService
             'items' => $items,
             'totalCount' => $totalCount,
         ];
+    }
+
+    /**
+     * Оновлює тільки нефінансові поля клієнта, дозволені admin UI.
+     *
+     * Balance тут не приймається навмисно: для money-state існує окремий
+     * topUp() use case із власною транзакцією та запуском pending processing.
+     *
+     * Операція змінює одну AR-сутність, тому окрема transaction не додається:
+     * один SQL UPDATE атомарний, а UNIQUE email захищений constraint-ом БД.
+     *
+     * @return OperationResult<Client>
+     */
+    public function update(
+        int $clientId,
+        ?string $name,
+        ?string $email,
+        ?string $status
+    ): OperationResult {
+        $client = Client::findOne($clientId);
+
+        if ($client === null) {
+            return OperationResult::failure(
+                new OperationError(
+                    code: self::ERROR_NOT_FOUND,
+                    details: [
+                        'id' => $clientId,
+                    ],
+                )
+            );
+        }
+
+        if ($name !== null) {
+            $client->name = $name;
+        }
+
+        if ($email !== null) {
+            $client->email = $email;
+        }
+
+        if ($status !== null) {
+            $client->status = $status;
+        }
+
+        try {
+            if (!$client->save()) {
+                return OperationResult::failure(
+                    new OperationError(
+                        code: self::ERROR_UPDATE_FAILED,
+                        details: [
+                            'validationErrors' => $client->getErrors(),
+                        ],
+                    )
+                );
+            }
+        } catch (IntegrityException) {
+            return OperationResult::failure(
+                new OperationError(code: self::ERROR_DATA_CONFLICT)
+            );
+        }
+
+        return OperationResult::success($client);
     }
 
     /**
@@ -263,33 +369,19 @@ final class ClientService
                         $balanceAfterTopUp = $oldBalance->add($topUpAmount);
                     } catch (OverflowException) {
                         return OperationResult::failure(
-                            new OperationError(
-                                code: self::ERROR_BALANCE_LIMIT_EXCEEDED,
-                            )
+                            new OperationError(code: self::ERROR_BALANCE_LIMIT_EXCEEDED)
                         );
                     }
 
                     $client->balance = $balanceAfterTopUp->toDecimal();
-                    $client->pending_processing_status =
-                        ClientPendingProcessingStatus::Queued->value;
+                    $client->pending_processing_status = ClientPendingProcessingStatus::Queued->value;
 
                     /**
                      * Зберігаємо тільки атрибути поточного use case.
                      * TimestampBehavior самостійно оновить updated_at.
                      */
-                    if (
-                        !$client->save(
-                            false,
-                            [
-                                'balance',
-                                'pending_processing_status',
-                                'updated_at',
-                            ],
-                        )
-                    ) {
-                        throw new RuntimeException(
-                            'Не вдалося зберегти поповнений баланс клієнта.'
-                        );
+                    if (!$client->save(false, ['balance', 'pending_processing_status', 'updated_at'])) {
+                        throw new RuntimeException('Не вдалося зберегти поповнений баланс клієнта.');
                     }
 
                     /**
@@ -309,9 +401,7 @@ final class ClientService
                      * вважати успішним поповненням.
                      */
                     if ($jobId === null) {
-                        throw new RuntimeException(
-                            'Queue не повернула ідентифікатор створеної Job.'
-                        );
+                        throw new RuntimeException('Queue не повернула ідентифікатор створеної Job.');
                     }
 
                     return OperationResult::success(

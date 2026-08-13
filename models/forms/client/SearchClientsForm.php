@@ -4,103 +4,81 @@ declare(strict_types=1);
 
 namespace app\models\forms\client;
 
+use app\models\entities\Client;
 use yii\base\Model;
 
 /**
- * Вхідна модель параметрів пошуку клієнтів.
+ * Вхідна модель параметрів серверного пошуку/фільтрації клієнтів.
  *
- * Модель описує transport-контракт endpoint:
- *
- * GET /clients/search
- *     ?field=name
- *     &value=Postman
- *     &like=1
- *     &page=1
- *     &per-page=20
- *
- * Form Model відповідає тільки за:
- *
- * - нормалізацію вхідних значень;
- * - перевірку дозволеного поля пошуку;
- * - перевірку режиму порівняння;
- * - валідацію параметрів пагінації.
- *
- * SQL-запити та вибір конкретного оператора порівняння
- * залишаються відповідальністю Service Layer.
+ * Контракт залишається явним і не перетворюється на універсальний query DSL:
+ * frontend може керувати лише конкретними полями, які реально присутні
+ * у затвердженому UI клієнтів.
  */
 final class SearchClientsForm extends Model
 {
     public const FIELD_NAME = 'name';
     public const FIELD_EMAIL = 'email';
 
+    public const RELATION_AND = 'and';
+    public const RELATION_OR = 'or';
+    public const RELATION_OFF = 'off';
+
+    public const BALANCE_SORT_ASC = 'asc';
+    public const BALANCE_SORT_DESC = 'desc';
+
     public const DEFAULT_PAGE = 1;
     public const DEFAULT_PER_PAGE = 20;
     public const MAX_PER_PAGE = 100;
 
-    /**
-     * Поле сутності Client, за яким виконується пошук.
-     *
-     * Значення навмисно проходить allowlist і не може бути
-     * довільною назвою SQL-колонки.
-     */
-    public mixed $field = null;
-
-    /**
-     * Значення, яке необхідно знайти.
-     */
-    public mixed $value = null;
-
-    /**
-     * Режим порівняння:
-     *
-     * 0 — точне значення;
-     * 1 — частковий збіг через LIKE.
-     *
-     * "Точне" тут означає відсутність wildcard-пошуку.
-     * Чутливість до регістру визначається collation БД.
-     */
-    public mixed $like = null;
-
-    /**
-     * Номер сторінки результатів.
-     */
+    public mixed $field = self::FIELD_NAME;
+    public mixed $value = '';
+    public mixed $like = '1';
+    public mixed $status = null;
+    public mixed $relation = self::RELATION_OFF;
+    public mixed $balance_sort = null;
     public mixed $page = self::DEFAULT_PAGE;
-
-    /**
-     * Кількість записів на сторінці.
-     *
-     * HTTP query parameter має ім'я `per-page`, але всередині
-     * Form Model використовується PHP-сумісне ім'я `per_page`.
-     */
     public mixed $per_page = self::DEFAULT_PER_PAGE;
 
     /**
-     * Описує правила нормалізації та валідації search request.
+     * Нормалізує та перевіряє тільки дозволені query-параметри.
+     *
+     * value може бути порожнім лише тоді, коли request все одно має
+     * реальний критерій: status або balance-sort. Це зберігає старий
+     * контракт звичайного text-search, але дозволяє UI виконувати
+     * status-only та sort-only запити до того самого endpoint.
      */
     public function rules(): array
     {
         return [
-            /**
-             * Пробіли по краях не є частиною ні назви поля,
-             * ні пошукового значення.
-             */
-            [['field', 'value'], 'trim'],
+            [['field', 'value', 'status', 'relation', 'balance_sort'], 'trim'],
+
+            ['field', 'default', 'value' => self::FIELD_NAME],
+            ['value', 'default', 'value' => ''],
+            ['like', 'default', 'value' => '1'],
+            ['relation', 'default', 'value' => self::RELATION_OFF],
+            ['page', 'default', 'value' => self::DEFAULT_PAGE],
+            ['per_page', 'default', 'value' => self::DEFAULT_PER_PAGE],
+
+            [['field', 'like', 'relation'], 'required'],
 
             /**
-             * Основні параметри search use case є обов'язковими.
+             * Старий контракт /clients/search вимагав value.
              *
-             * Пагінація може бути відсутня — для неї існують defaults.
+             * Під час frontend-інтеграції з'явилися два валідні сценарії
+             * без текстового значення: фільтр лише за status і сортування
+             * лише за balance. Тому послаблюємо правило тільки для них,
+             * а порожній search request без жодного критерію як і раніше
+             * вважаємо невалідним.
              */
-            [['field', 'value', 'like'], 'required'],
+            [
+                'value',
+                'required',
+                'when' => static fn (self $model): bool =>
+                    trim((string) ($model->status ?? '')) === ''
+                    && trim((string) ($model->balance_sort ?? '')) === '',
+                'message' => 'Значення пошуку не може бути порожнім.',
+            ],
 
-            /**
-             * Не дозволяємо передавати довільне ім'я колонки.
-             *
-             * Це одночасно:
-             * - робить API-контракт явним;
-             * - не дозволяє transport input визначати SQL-структуру;
-             * - спрощує подальше безпечне формування query у Service Layer.
-             */
             [
                 'field',
                 'in',
@@ -112,23 +90,13 @@ final class SearchClientsForm extends Model
                 'message' => 'Поле пошуку має містити значення name або email.',
             ],
 
-            /**
-             * Для клієнта name та email мають максимальну довжину 255,
-             * тому довше пошукове значення не має практичного сенсу.
-             */
             [
                 'value',
                 'string',
-                'min' => 1,
                 'max' => 255,
-                'tooShort' => 'Значення пошуку не може бути порожнім.',
                 'tooLong' => 'Значення пошуку не може перевищувати 255 символів.',
             ],
 
-            /**
-             * Query parameters надходять із HTTP як рядки,
-             * тому контракт навмисно приймає саме "0" або "1".
-             */
             [
                 'like',
                 'in',
@@ -137,8 +105,41 @@ final class SearchClientsForm extends Model
                 'message' => 'Параметр like має містити значення 0 або 1.',
             ],
 
-            ['page', 'default', 'value' => self::DEFAULT_PAGE],
-            ['per_page', 'default', 'value' => self::DEFAULT_PER_PAGE],
+            [
+                'status',
+                'in',
+                'range' => [
+                    Client::STATUS_ACTIVE,
+                    Client::STATUS_BLOCKED,
+                ],
+                'strict' => true,
+                'skipOnEmpty' => true,
+                'message' => 'Статус клієнта має містити значення active або blocked.',
+            ],
+
+            [
+                'relation',
+                'in',
+                'range' => [
+                    self::RELATION_AND,
+                    self::RELATION_OR,
+                    self::RELATION_OFF,
+                ],
+                'strict' => true,
+                'message' => 'Relation має містити значення and, or або off.',
+            ],
+
+            [
+                'balance_sort',
+                'in',
+                'range' => [
+                    self::BALANCE_SORT_ASC,
+                    self::BALANCE_SORT_DESC,
+                ],
+                'strict' => true,
+                'skipOnEmpty' => true,
+                'message' => 'Сортування balance має містити значення asc або desc.',
+            ],
 
             [
                 'page',
@@ -160,43 +161,45 @@ final class SearchClientsForm extends Model
         ];
     }
 
-    /**
-     * Повертає валідоване поле пошуку.
-     */
     public function fieldName(): string
     {
         return (string) $this->field;
     }
 
-    /**
-     * Повертає нормалізоване пошукове значення.
-     */
     public function searchValue(): string
     {
         return (string) $this->value;
     }
 
-    /**
-     * Визначає, чи потрібно виконувати частковий LIKE-пошук.
-     *
-     * false означає точне порівняння значення без wildcard.
-     */
     public function isLike(): bool
     {
         return (string) $this->like === '1';
     }
 
-    /**
-     * Повертає валідований номер сторінки.
-     */
+    public function statusFilter(): ?string
+    {
+        $status = (string) ($this->status ?? '');
+
+        return $status === '' ? null : $status;
+    }
+
+    public function relationMode(): string
+    {
+        return (string) $this->relation;
+    }
+
+    public function balanceSort(): ?string
+    {
+        $sort = (string) ($this->balance_sort ?? '');
+
+        return $sort === '' ? null : $sort;
+    }
+
     public function pageNumber(): int
     {
         return (int) $this->page;
     }
 
-    /**
-     * Повертає валідований розмір сторінки.
-     */
     public function pageSize(): int
     {
         return (int) $this->per_page;

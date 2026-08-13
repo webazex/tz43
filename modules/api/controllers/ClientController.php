@@ -9,19 +9,16 @@ use app\contracts\results\OperationResult;
 use app\contracts\results\TopUpResult;
 use app\models\entities\Client;
 use app\models\forms\client\CreateClientForm;
+use app\models\forms\client\SearchClientsForm;
 use app\models\forms\client\TopUpClientForm;
+use app\models\forms\client\UpdateClientForm;
 use app\modules\api\security\ApiTokenAuthenticator;
 use app\resources\ClientResource;
 use app\responses\OperationResponse;
 use app\services\ClientService;
-use app\models\forms\client\SearchClientsForm;
-
 
 final class ClientController extends ApiController
 {
-    /**
-     * HTTP-статуси, які повертають actions контролера.
-     */
     private const HTTP_CREATED = 201;
     private const HTTP_ACCEPTED = 202;
     private const HTTP_NOT_FOUND = 404;
@@ -29,12 +26,6 @@ final class ClientController extends ApiController
     private const HTTP_UNPROCESSABLE_ENTITY = 422;
     private const HTTP_INTERNAL_SERVER_ERROR = 500;
 
-    /**
-     * Налаштування пагінації списку клієнтів.
-     *
-     * Значення залишаються локальними для ClientController,
-     * оскільки базовий ApiController не керує параметрами списків.
-     */
     private const DEFAULT_PAGE = 1;
     private const DEFAULT_PER_PAGE = 20;
     private const MAX_PER_PAGE = 100;
@@ -46,12 +37,7 @@ final class ClientController extends ApiController
         private readonly ClientService $clientService,
         $config = [],
     ) {
-        parent::__construct(
-            $id,
-            $module,
-            $tokenAuthenticator,
-            $config,
-        );
+        parent::__construct($id, $module, $tokenAuthenticator, $config);
     }
 
     /**
@@ -63,13 +49,14 @@ final class ClientController extends ApiController
             'index' => ['GET'],
             'search' => ['GET'],
             'create' => ['POST'],
+            'update' => ['PATCH'],
             'view' => ['GET'],
             'top-up' => ['POST'],
         ];
     }
 
     /**
-     * Повертає сторінку списку клієнтів.
+     * Повертає сторінку списку клієнтів без фільтрів.
      */
     public function actionIndex(): OperationResponse
     {
@@ -80,30 +67,19 @@ final class ClientController extends ApiController
 
         $perPage = min(
             self::MAX_PER_PAGE,
-            max(
-                1,
-                (int) $this->request->get('per-page', self::DEFAULT_PER_PAGE),
-            ),
+            max(1, (int) $this->request->get('per-page', self::DEFAULT_PER_PAGE)),
         );
 
         $result = $this->clientService->getList($page, $perPage);
         $totalCount = $result['totalCount'];
-
-        $pageCount = $totalCount === 0
-            ? 0
-            : (int) ceil($totalCount / $perPage);
+        $pageCount = $totalCount === 0 ? 0 : (int) ceil($totalCount / $perPage);
 
         $items = array_map(
             static fn (Client $client): ClientResource => new ClientResource($client),
             $result['items'],
         );
 
-        $this->setPaginationHeaders(
-            $page,
-            $perPage,
-            $pageCount,
-            $totalCount,
-        );
+        $this->setPaginationHeaders($page, $perPage, $pageCount, $totalCount);
 
         return OperationResponse::success([
             'items' => $items,
@@ -117,52 +93,28 @@ final class ClientController extends ApiController
     }
 
     /**
-     * Виконує пошук клієнтів за явно вказаним полем.
+     * Виконує серверний пошук/фільтрацію клієнтів.
      *
-     * Endpoint приймає:
-     *
-     * field    — поле пошуку: name або email;
-     * value    — значення пошуку;
-     * like     — 0 для точного або 1 для часткового збігу;
-     * page     — номер сторінки;
-     * per-page — кількість записів на сторінці.
-     *
-     * Controller відповідає лише за transport input, validation
-     * та формування HTTP response. Сам SQL-пошук виконується
-     * всередині ClientService.
+     * Controller лише адаптує query string до Form Model. Семантика SQL
+     * залишається в ClientService, а transport validation — у Form Model.
      */
     public function actionSearch(): OperationResponse
     {
         $form = new SearchClientsForm();
-
-        /**
-         * HTTP parameter `per-page` вручну переводимо у властивість
-         * Form Model `per_page`.
-         *
-         * Це той самий підхід, який уже використовується
-         * для ListOrdersForm.
-         */
         $form->load(
             [
                 'field' => $this->request->get('field'),
                 'value' => $this->request->get('value'),
                 'like' => $this->request->get('like'),
-                'page' => $this->request->get(
-                    'page',
-                    SearchClientsForm::DEFAULT_PAGE,
-                ),
-                'per_page' => $this->request->get(
-                    'per-page',
-                    SearchClientsForm::DEFAULT_PER_PAGE,
-                ),
+                'status' => $this->request->get('status'),
+                'relation' => $this->request->get('relation'),
+                'balance_sort' => $this->request->get('balance-sort'),
+                'page' => $this->request->get('page', SearchClientsForm::DEFAULT_PAGE),
+                'per_page' => $this->request->get('per-page', SearchClientsForm::DEFAULT_PER_PAGE),
             ],
             '',
         );
 
-        /**
-         * Невалідний transport input не повинен доходити
-         * до Service Layer.
-         */
         if (!$form->validate()) {
             $this->response->statusCode = self::HTTP_UNPROCESSABLE_ENTITY;
 
@@ -185,25 +137,20 @@ final class ClientController extends ApiController
             $form->fieldName(),
             $form->searchValue(),
             $form->isLike(),
+            $form->statusFilter(),
+            $form->relationMode(),
+            $form->balanceSort(),
         );
 
         $totalCount = $result['totalCount'];
-
-        $pageCount = $totalCount === 0
-            ? 0
-            : (int) ceil($totalCount / $perPage);
+        $pageCount = $totalCount === 0 ? 0 : (int) ceil($totalCount / $perPage);
 
         $items = array_map(
             static fn (Client $client): ClientResource => new ClientResource($client),
             $result['items'],
         );
 
-        $this->setPaginationHeaders(
-            $page,
-            $perPage,
-            $pageCount,
-            $totalCount,
-        );
+        $this->setPaginationHeaders($page, $perPage, $pageCount, $totalCount);
 
         return OperationResponse::success([
             'items' => $items,
@@ -221,14 +168,60 @@ final class ClientController extends ApiController
      */
     public function actionCreate(): OperationResponse
     {
-        $result = $this->executeCreate($this->request->bodyParams);
-
-        return $this->buildCreateResponse($result);
+        return $this->buildCreateResponse(
+            $this->executeCreate($this->request->bodyParams)
+        );
     }
 
     /**
-     * Виконує application use case створення клієнта.
-     *
+     * Оновлює тільки дозволені нефінансові поля клієнта.
+     */
+    public function actionUpdate(int $id): OperationResponse
+    {
+        $result = $this->executeUpdate($id, $this->request->bodyParams);
+
+        if ($result->isFailure()) {
+            $error = $result->error();
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        return OperationResponse::success(
+            new ClientResource($result->value())
+        );
+    }
+
+    /**
+     * Повертає одного клієнта за ID.
+     */
+    public function actionView(int $id): OperationResponse
+    {
+        $result = $this->clientService->getById($id);
+
+        if ($result->isFailure()) {
+            $error = $result->error();
+            $this->response->statusCode = $this->resolveFailureStatusCode($error);
+
+            return OperationResponse::failure($error);
+        }
+
+        return OperationResponse::success(
+            new ClientResource($result->value())
+        );
+    }
+
+    /**
+     * Поповнює баланс та запускає асинхронну обробку pending-orders.
+     */
+    public function actionTopUp(int $id): OperationResponse
+    {
+        return $this->buildTopUpResponse(
+            $this->executeTopUp($id, $this->request->bodyParams)
+        );
+    }
+
+    /**
      * @param array<string, mixed> $data
      * @return OperationResult<Client>
      */
@@ -238,14 +231,7 @@ final class ClientController extends ApiController
         $form->load($data, '');
 
         if (!$form->validate()) {
-            return OperationResult::failure(
-                new OperationError(
-                    code: OperationError::CODE_VALIDATION_FAILED,
-                    details: [
-                        'fields' => $form->getErrors(),
-                    ],
-                )
-            );
+            return $this->validationFailure($form->getErrors());
         }
 
         return $this->clientService->create(
@@ -257,15 +243,33 @@ final class ClientController extends ApiController
     }
 
     /**
-     * Перетворює application-result у зовнішній response.
-     *
+     * @param array<string, mixed> $data
+     * @return OperationResult<Client>
+     */
+    private function executeUpdate(int $id, array $data): OperationResult
+    {
+        $form = new UpdateClientForm();
+        $form->load($data, '');
+
+        if (!$form->validate()) {
+            return $this->validationFailure($form->getErrors());
+        }
+
+        return $this->clientService->update(
+            $id,
+            $form->nameValue(),
+            $form->emailValue(),
+            $form->statusValue(),
+        );
+    }
+
+    /**
      * @param OperationResult<Client> $result
      */
     private function buildCreateResponse(OperationResult $result): OperationResponse
     {
         if ($result->isFailure()) {
             $error = $result->error();
-
             $this->response->statusCode = $this->resolveFailureStatusCode($error);
 
             return OperationResponse::failure($error);
@@ -279,76 +283,22 @@ final class ClientController extends ApiController
     }
 
     /**
-     * Додає метадані пагінації до HTTP headers.
+     * @param array<string, list<string>> $errors
+     * @return OperationResult<never>
      */
-    private function setPaginationHeaders(
-        int $page,
-        int $perPage,
-        int $pageCount,
-        int $totalCount,
-    ): void {
-        $headers = $this->response->headers;
-
-        $headers->set('X-Pagination-Current-Page', (string) $page);
-        $headers->set('X-Pagination-Per-Page', (string) $perPage);
-        $headers->set('X-Pagination-Page-Count', (string) $pageCount);
-        $headers->set('X-Pagination-Total-Count', (string) $totalCount);
-    }
-
-    /**
-     * Визначає HTTP status відповідно до application-помилки.
-     */
-    private function resolveFailureStatusCode(OperationError $error): int
+    private function validationFailure(array $errors): OperationResult
     {
-        return match ($error->code) {
-            OperationError::CODE_VALIDATION_FAILED,
-            ClientService::ERROR_CREATE_FAILED,
-            ClientService::ERROR_TOP_UP_INVALID_AMOUNT,
-            ClientService::ERROR_BALANCE_LIMIT_EXCEEDED => self::HTTP_UNPROCESSABLE_ENTITY,
-
-            ClientService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
-
-            ClientService::ERROR_DATA_CONFLICT => self::HTTP_CONFLICT,
-
-            ClientService::ERROR_TOP_UP_FAILED => self::HTTP_INTERNAL_SERVER_ERROR,
-
-            default => self::HTTP_INTERNAL_SERVER_ERROR,
-        };
-    }
-
-    /**
-     * Повертає одного клієнта за його ID.
-     */
-    public function actionView(int $id): OperationResponse
-    {
-        $result = $this->clientService->getById($id);
-
-        if ($result->isFailure()) {
-            $error = $result->error();
-
-            $this->response->statusCode = $this->resolveFailureStatusCode($error);
-
-            return OperationResponse::failure($error);
-        }
-
-        return OperationResponse::success(
-            new ClientResource($result->value())
+        return OperationResult::failure(
+            new OperationError(
+                code: OperationError::CODE_VALIDATION_FAILED,
+                details: [
+                    'fields' => $errors,
+                ],
+            )
         );
     }
 
     /**
-     * Поповнює баланс клієнта та запускає асинхронну
-     * обробку його pending-замовлень.
-     */
-    public function actionTopUp(int $id): OperationResponse
-    {
-        $result = $this->executeTopUp($id, $this->request->bodyParams);
-        return $this->buildTopUpResponse($result);
-    }
-
-    /**
-     * Перевіряє input і запускає application use case поповнення.
-     *
      * @param array<string, mixed> $data
      * @return OperationResult<TopUpResult>
      */
@@ -358,35 +308,19 @@ final class ClientController extends ApiController
         $form->load($data, '');
 
         if (!$form->validate()) {
-            return OperationResult::failure(
-                new OperationError(
-                    code: OperationError::CODE_VALIDATION_FAILED,
-                    details: [
-                        'fields' => $form->getErrors(),
-                    ],
-                )
-            );
+            return $this->validationFailure($form->getErrors());
         }
 
-        return $this->clientService->topUp(
-            $clientId,
-            (string) $form->amount,
-        );
+        return $this->clientService->topUp($clientId, (string) $form->amount);
     }
 
     /**
-     * Перетворює результат поповнення у зовнішній HTTP response.
-     *
-     * HTTP 202 показує, що синхронна частина вже завершена,
-     * але Queue Job з оплатою pending-замовлень ще може виконуватися.
-     *
      * @param OperationResult<TopUpResult> $result
      */
     private function buildTopUpResponse(OperationResult $result): OperationResponse
     {
         if ($result->isFailure()) {
             $error = $result->error();
-
             $this->response->statusCode = $this->resolveFailureStatusCode($error);
 
             return OperationResponse::failure($error);
@@ -394,17 +328,47 @@ final class ClientController extends ApiController
 
         /** @var TopUpResult $topUpResult */
         $topUpResult = $result->value();
-
         $this->response->statusCode = self::HTTP_ACCEPTED;
 
         /**
-         * balanceAfterTopUp — баланс одразу після зарахування.
-         * Це не фінальний баланс після виконання Queue Job.
+         * balanceAfterTopUp — баланс одразу після зарахування, а не гарантований
+         * фінальний баланс після виконання Queue Job.
          */
         return OperationResponse::success([
             'creditedAmount' => $topUpResult->creditedAmount,
             'oldBalance' => $topUpResult->oldBalance,
             'balanceAfterTopUp' => $topUpResult->balanceAfterTopUp,
         ]);
+    }
+
+    /**
+     * Додає стандартні metadata pagination у response headers.
+     */
+    private function setPaginationHeaders(int $page, int $perPage, int $pageCount, int $totalCount): void
+    {
+        $headers = $this->response->headers;
+        $headers->set('X-Pagination-Current-Page', (string) $page);
+        $headers->set('X-Pagination-Per-Page', (string) $perPage);
+        $headers->set('X-Pagination-Page-Count', (string) $pageCount);
+        $headers->set('X-Pagination-Total-Count', (string) $totalCount);
+    }
+
+    /**
+     * HTTP status визначається transport layer і не потрапляє в OperationError.
+     */
+    private function resolveFailureStatusCode(OperationError $error): int
+    {
+        return match ($error->code) {
+            OperationError::CODE_VALIDATION_FAILED,
+            ClientService::ERROR_CREATE_FAILED,
+            ClientService::ERROR_UPDATE_FAILED,
+            ClientService::ERROR_TOP_UP_INVALID_AMOUNT,
+            ClientService::ERROR_BALANCE_LIMIT_EXCEEDED => self::HTTP_UNPROCESSABLE_ENTITY,
+
+            ClientService::ERROR_NOT_FOUND => self::HTTP_NOT_FOUND,
+            ClientService::ERROR_DATA_CONFLICT => self::HTTP_CONFLICT,
+            ClientService::ERROR_TOP_UP_FAILED => self::HTTP_INTERNAL_SERVER_ERROR,
+            default => self::HTTP_INTERNAL_SERVER_ERROR,
+        };
     }
 }
